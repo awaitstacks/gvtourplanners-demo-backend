@@ -21,7 +21,7 @@ const tourBookingSchema = new mongoose.Schema({
       },
       sharingType: {
         type: String,
-        enum: ["double", "triple"],
+        enum: ["double", "triple", "withBerth", "withoutBerth"],
         required: true,
       },
 
@@ -36,10 +36,13 @@ const tourBookingSchema = new mongoose.Schema({
         stationCode: { type: String },
         stationName: { type: String },
       },
+      // ✅ Deboarding Point per traveller
+      deboardingPoint: {
+        stationCode: { type: String },
+        stationName: { type: String },
+      },
 
-      // 👇 New fields for dynamic name list
-
-      // ✅ Updated fields for dynamic name list
+      // New fields for dynamic name list
       trainSeats: [
         {
           trainName: { type: String },
@@ -57,12 +60,12 @@ const tourBookingSchema = new mongoose.Schema({
       // Remarks per traveller (optional)
       remarks: { type: String },
 
-      // ⛔ Traveller-level cancel status (same shape as booking.cancelled)
+      // Traveller-level cancel status (same shape as booking.cancelled)
       cancelled: {
         byAdmin: { type: Boolean, default: false },
         byTraveller: { type: Boolean, default: false },
         cancelledAt: { type: Date },
-        releaseddAt: { type: Date }, // kept same key as booking-level
+        releaseddAt: { type: Date },
         reason: { type: String },
       },
     },
@@ -120,7 +123,7 @@ const tourBookingSchema = new mongoose.Schema({
   isTripCompleted: { type: Boolean, default: false },
   isBookingCompleted: { type: Boolean, default: false },
 
-  // 🔴 Booking-level cancel status (unchanged)
+  // Booking-level cancel status (unchanged)
   cancelled: {
     byAdmin: { type: Boolean, default: false },
     byTraveller: { type: Boolean, default: false },

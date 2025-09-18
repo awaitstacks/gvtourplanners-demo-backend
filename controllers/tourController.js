@@ -538,6 +538,234 @@ const tourProfile = async (req, res) => {
   }
 };
 
+// const updateTourProfile = async (req, res) => {
+//   try {
+//     const tourId = req.tour; // From auth middleware
+//     const tour = await tourModel.findById(tourId);
+//     if (!tour) {
+//       return res.json({ success: false, message: "Tour not found" });
+//     }
+
+//     const {
+//       title,
+//       batch,
+//       duration,
+//       price,
+//       destination,
+//       sightseeing,
+//       itinerary,
+//       includes,
+//       excludes,
+//       trainDetails,
+//       flightDetails,
+//       lastBookingDate,
+//       completedTripsCount,
+//       available,
+//       advanceAmount,
+//       addons,
+//       boardingPoints,
+//       remarks,
+//     } = req.body;
+
+//     const { titleImage, mapImage, galleryImages } = req.files;
+
+//     // Image upload helper
+//     const uploadImage = async (file) => {
+//       const result = await cloudinary.uploader.upload(file.path, {
+//         resource_type: "image",
+//       });
+//       return result.secure_url;
+//     };
+
+//     let updateFields = {};
+
+//     // 🔹 Images
+//     if (titleImage) {
+//       const url = await uploadImage(titleImage[0]);
+//       updateFields.titleImage = url;
+//     }
+
+//     if (mapImage) {
+//       const url = await uploadImage(mapImage[0]);
+//       updateFields.mapImage = url;
+//     }
+
+//     if (galleryImages) {
+//       if (galleryImages.length !== 3) {
+//         return res.json({
+//           success: false,
+//           message: "Please upload exactly 3 gallery images",
+//         });
+//       }
+//       const urls = await Promise.all(
+//         galleryImages.map((img) => uploadImage(img))
+//       );
+//       updateFields.galleryImages = urls;
+//     }
+
+//     // 🔹 Basic fields
+//     if (title) updateFields.title = title;
+//     if (remarks) updateFields.remarks = remarks;
+//     if (batch) updateFields.batch = batch;
+//     if (lastBookingDate) updateFields.lastBookingDate = lastBookingDate;
+//     if (typeof available !== "undefined") updateFields.available = available;
+
+//     // 🔹 Parse & validate nested objects from form data
+//     let parsedPrice, parsedAdvanceAmount;
+
+//     if (price) {
+//       try {
+//         parsedPrice = JSON.parse(price);
+//         const {
+//           doubleSharing,
+//           tripleSharing,
+//           childWithBerth,
+//           childWithoutBerth,
+//         } = parsedPrice;
+//         if (
+//           isNaN(Number(doubleSharing)) ||
+//           isNaN(Number(tripleSharing)) ||
+//           (childWithBerth && isNaN(Number(childWithBerth))) ||
+//           (childWithoutBerth && isNaN(Number(childWithoutBerth)))
+//         ) {
+//           return res.json({ success: false, message: "Invalid price format" });
+//         }
+//         updateFields.price = parsedPrice;
+//       } catch {
+//         return res.json({ success: false, message: "Invalid JSON in price" });
+//       }
+//     }
+
+//     if (advanceAmount) {
+//       try {
+//         parsedAdvanceAmount = JSON.parse(advanceAmount);
+//         const { adult, child } = parsedAdvanceAmount;
+//         if (isNaN(Number(adult)) || (child && isNaN(Number(child)))) {
+//           return res.json({
+//             success: false,
+//             message: "Invalid advance amount format",
+//           });
+//         }
+//         updateFields.advanceAmount = parsedAdvanceAmount;
+//       } catch {
+//         return res.json({
+//           success: false,
+//           message: "Invalid JSON in advanceAmount",
+//         });
+//       }
+//     }
+
+//     // 🔹 Calculate balances if both price and advanceAmount are provided
+//     if (parsedPrice && parsedAdvanceAmount) {
+//       const adultAdvance = Number(parsedAdvanceAmount.adult);
+//       const childAdvance = Number(parsedAdvanceAmount.child);
+
+//       if (!isNaN(Number(parsedPrice.doubleSharing)) && !isNaN(adultAdvance)) {
+//         updateFields.balanceDouble =
+//           Number(parsedPrice.doubleSharing) - adultAdvance;
+//       }
+//       if (!isNaN(Number(parsedPrice.tripleSharing)) && !isNaN(adultAdvance)) {
+//         updateFields.balanceTriple =
+//           Number(parsedPrice.tripleSharing) - adultAdvance;
+//       }
+//       if (!isNaN(Number(parsedPrice.childWithBerth)) && !isNaN(childAdvance)) {
+//         updateFields.balanceChildWithBerth =
+//           Number(parsedPrice.childWithBerth) - childAdvance;
+//       }
+//       if (
+//         !isNaN(Number(parsedPrice.childWithoutBerth)) &&
+//         !isNaN(childAdvance)
+//       ) {
+//         updateFields.balanceChildWithoutBerth =
+//           Number(parsedPrice.childWithoutBerth) - childAdvance;
+//       }
+//     }
+
+//     // 🔹 Duration
+//     if (duration) {
+//       try {
+//         const parsed = JSON.parse(duration);
+//         const days = Number(parsed.days);
+//         const nights = Number(parsed.nights);
+//         if (isNaN(days) || isNaN(nights)) {
+//           return res.json({
+//             success: false,
+//             message: "Invalid duration format",
+//           });
+//         }
+//         updateFields.duration = { days, nights };
+//       } catch {
+//         return res.json({
+//           success: false,
+//           message: "Invalid JSON in duration",
+//         });
+//       }
+//     }
+
+//     // 🔹 Completed Trips
+//     if (completedTripsCount) {
+//       const trips = Number(completedTripsCount);
+//       if (isNaN(trips) || trips < 0) {
+//         return res.json({
+//           success: false,
+//           message: "Invalid completedTripsCount",
+//         });
+//       }
+//       updateFields.completedTripsCount = trips;
+//     }
+
+//     // 🔹 Optional Arrays (parsed only if provided)
+//     const optionalArrays = {
+//       destination,
+//       sightseeing,
+//       itinerary,
+//       includes,
+//       excludes,
+//       trainDetails,
+//       flightDetails,
+//       addons,
+//       boardingPoints,
+//     };
+
+//     for (let key in optionalArrays) {
+//       if (optionalArrays[key]) {
+//         try {
+//           const parsedArray = JSON.parse(optionalArrays[key]);
+//           if (!Array.isArray(parsedArray)) {
+//             throw new Error();
+//           }
+//           if (key === "addons") {
+//             updateFields[key] = parsedArray.map((a) => ({
+//               name: a.name,
+//               amount: Number(a.amount) || 0,
+//             }));
+//           } else if (key === "boardingPoints") {
+//             updateFields[key] = parsedArray.map((a) => ({
+//               stationCode: a.stationCode,
+//               stationName: a.stationName,
+//             }));
+//           } else {
+//             updateFields[key] = parsedArray;
+//           }
+//         } catch {
+//           return res.json({
+//             success: false,
+//             message: `Invalid JSON in ${key}`,
+//           });
+//         }
+//       }
+//     }
+
+//     // 🔹 Perform the update
+//     await tourModel.findByIdAndUpdate(tourId, updateFields);
+
+//     res.json({ success: true, message: "Tour updated successfully" });
+//   } catch (error) {
+//     console.error("Update Tour Error:", error);
+//     res.json({ success: false, message: error.message });
+//   }
+// };
+
 const updateTourProfile = async (req, res) => {
   try {
     const tourId = req.tour; // From auth middleware
@@ -546,6 +774,39 @@ const updateTourProfile = async (req, res) => {
       return res.json({ success: false, message: "Tour not found" });
     }
 
+    // 1. Destructure and get files
+    const { titleImage, mapImage, galleryImages } = req.files;
+
+    // 2. Image upload helper
+    const uploadImage = async (file) => {
+      const result = await cloudinary.uploader.upload(file.path, {
+        resource_type: "image",
+      });
+      return result.secure_url;
+    };
+
+    let updateFields = {};
+
+    // 3. Process images
+    if (titleImage) {
+      updateFields.titleImage = await uploadImage(titleImage[0]);
+    }
+    if (mapImage) {
+      updateFields.mapImage = await uploadImage(mapImage[0]);
+    }
+    if (galleryImages) {
+      if (galleryImages.length !== 3) {
+        return res.json({
+          success: false,
+          message: "Please upload exactly 3 gallery images",
+        });
+      }
+      updateFields.galleryImages = await Promise.all(
+        galleryImages.map((img) => uploadImage(img))
+      );
+    }
+
+    // 4. Get and parse all body fields, including nested ones
     const {
       title,
       batch,
@@ -567,60 +828,52 @@ const updateTourProfile = async (req, res) => {
       remarks,
     } = req.body;
 
-    const { titleImage, mapImage, galleryImages } = req.files;
-
-    // Image upload helper
-    const uploadImage = async (file) => {
-      const result = await cloudinary.uploader.upload(file.path, {
-        resource_type: "image",
-      });
-      return result.secure_url;
-    };
-
-    let updateFields = {};
-
-    // 🔹 Images
-    if (titleImage) {
-      const url = await uploadImage(titleImage[0]);
-      updateFields.titleImage = url;
+    // 5. Use existing data as a fallback for calculations
+    let parsedPrice = tour.price;
+    if (price) {
+      try {
+        parsedPrice = JSON.parse(price);
+        updateFields.price = parsedPrice;
+      } catch {
+        return res.json({ success: false, message: "Invalid JSON in price" });
+      }
     }
 
-    if (mapImage) {
-      const url = await uploadImage(mapImage[0]);
-      updateFields.mapImage = url;
-    }
-
-    if (galleryImages) {
-      if (galleryImages.length !== 3) {
+    let parsedAdvanceAmount = tour.advanceAmount;
+    if (advanceAmount) {
+      try {
+        parsedAdvanceAmount = JSON.parse(advanceAmount);
+        updateFields.advanceAmount = parsedAdvanceAmount;
+      } catch {
         return res.json({
           success: false,
-          message: "Please upload exactly 3 gallery images",
+          message: "Invalid JSON in advanceAmount",
         });
       }
-      const urls = await Promise.all(
-        galleryImages.map((img) => uploadImage(img))
-      );
-      updateFields.galleryImages = urls;
     }
 
-    // 🔹 Basic fields
+    // 6. Recalculate balances using the most current data (either from the request or the DB)
+    if (parsedPrice && parsedAdvanceAmount) {
+      const adultAdvance = Number(parsedAdvanceAmount.adult);
+      const childAdvance = Number(parsedAdvanceAmount.child);
+
+      updateFields.balanceDouble =
+        Number(parsedPrice.doubleSharing) - adultAdvance;
+      updateFields.balanceTriple =
+        Number(parsedPrice.tripleSharing) - adultAdvance;
+      updateFields.balanceChildWithBerth =
+        Number(parsedPrice.childWithBerth) - childAdvance;
+      updateFields.balanceChildWithoutBerth =
+        Number(parsedPrice.childWithoutBerth) - childAdvance;
+    }
+
+    // 7. Update other fields (duration, completedTripsCount, etc.) as before
     if (title) updateFields.title = title;
     if (remarks) updateFields.remarks = remarks;
     if (batch) updateFields.batch = batch;
-
     if (lastBookingDate) updateFields.lastBookingDate = lastBookingDate;
     if (typeof available !== "undefined") updateFields.available = available;
 
-    // 🔹 Parse numbers safely
-    if (advanceAmount) {
-      const adv = Number(advanceAmount);
-      if (isNaN(adv)) {
-        return res.json({ success: false, message: "Invalid advance amount" });
-      }
-      updateFields.advanceAmount = adv;
-    }
-
-    // 🔹 Duration
     if (duration) {
       try {
         const parsed = JSON.parse(duration);
@@ -641,28 +894,6 @@ const updateTourProfile = async (req, res) => {
       }
     }
 
-    // 🔹 Price & Balance
-    if (price) {
-      try {
-        const parsed = JSON.parse(price);
-        const double = Number(parsed.doubleSharing);
-        const triple = Number(parsed.tripleSharing);
-        if (isNaN(double) || isNaN(triple)) {
-          return res.json({ success: false, message: "Invalid price format" });
-        }
-        updateFields.price = parsed;
-
-        if (advanceAmount) {
-          const adv = Number(advanceAmount);
-          updateFields.balanceDouble = double - adv;
-          updateFields.balanceTriple = triple - adv;
-        }
-      } catch {
-        return res.json({ success: false, message: "Invalid JSON in price" });
-      }
-    }
-
-    // 🔹 Completed Trips
     if (completedTripsCount) {
       const trips = Number(completedTripsCount);
       if (isNaN(trips) || trips < 0) {
@@ -674,7 +905,6 @@ const updateTourProfile = async (req, res) => {
       updateFields.completedTripsCount = trips;
     }
 
-    // 🔹 Optional Arrays (parsed only if provided)
     const optionalArrays = {
       destination,
       sightseeing,
@@ -683,12 +913,28 @@ const updateTourProfile = async (req, res) => {
       excludes,
       trainDetails,
       flightDetails,
+      addons,
+      boardingPoints,
     };
 
     for (let key in optionalArrays) {
       if (optionalArrays[key]) {
         try {
-          updateFields[key] = JSON.parse(optionalArrays[key]);
+          const parsedArray = JSON.parse(optionalArrays[key]);
+          if (!Array.isArray(parsedArray)) throw new Error();
+          if (key === "addons") {
+            updateFields[key] = parsedArray.map((a) => ({
+              name: a.name,
+              amount: Number(a.amount) || 0,
+            }));
+          } else if (key === "boardingPoints") {
+            updateFields[key] = parsedArray.map((a) => ({
+              stationCode: a.stationCode,
+              stationName: a.stationName,
+            }));
+          } else {
+            updateFields[key] = parsedArray;
+          }
         } catch {
           return res.json({
             success: false,
@@ -698,38 +944,8 @@ const updateTourProfile = async (req, res) => {
       }
     }
 
-    // 🔹 Addons
-    if (addons) {
-      try {
-        const parsedAddons = JSON.parse(addons);
-        if (!Array.isArray(parsedAddons)) {
-          throw new Error();
-        }
-        updateFields.addons = parsedAddons.map((a) => ({
-          name: a.name,
-          amount: Number(a.amount) || 0,
-        }));
-      } catch {
-        return res.json({ success: false, message: "Invalid JSON in addons" });
-      }
-    }
-    if (boardingPoints) {
-      try {
-        const parsedBp = JSON.parse(boardingPoints);
-        if (!Array.isArray(parsedBp)) {
-          throw new Error();
-        }
-        updateFields.boardingPoints = parsedBp.map((a) => ({
-          stationCode: a.stationCode,
-          stationName: a.stationName,
-        }));
-      } catch {
-        return res.json({ success: false, message: "Invalid JSON in addons" });
-      }
-    }
-
-    // 🔹 Perform the update
-    await tourModel.findByIdAndUpdate(tourId, updateFields);
+    // 8. Final update
+    await tourModel.findByIdAndUpdate(tourId, { $set: updateFields });
 
     res.json({ success: true, message: "Tour updated successfully" });
   } catch (error) {

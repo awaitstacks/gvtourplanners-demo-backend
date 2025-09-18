@@ -34,7 +34,7 @@ app.use("/api/user", userRouter);
 //localhost:4000/api/admin
 
 app.get("/", (req, res) => {
-  res.send("API working");
+  res.send("API working TEST MODE");
 });
 
 app.listen(port, () => console.log("Server started", port));
