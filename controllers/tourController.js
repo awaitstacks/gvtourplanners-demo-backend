@@ -546,6 +546,39 @@ const tourProfile = async (req, res) => {
 //       return res.json({ success: false, message: "Tour not found" });
 //     }
 
+//     // 1. Destructure and get files
+//     const { titleImage, mapImage, galleryImages } = req.files;
+
+//     // 2. Image upload helper
+//     const uploadImage = async (file) => {
+//       const result = await cloudinary.uploader.upload(file.path, {
+//         resource_type: "image",
+//       });
+//       return result.secure_url;
+//     };
+
+//     let updateFields = {};
+
+//     // 3. Process images
+//     if (titleImage) {
+//       updateFields.titleImage = await uploadImage(titleImage[0]);
+//     }
+//     if (mapImage) {
+//       updateFields.mapImage = await uploadImage(mapImage[0]);
+//     }
+//     if (galleryImages) {
+//       if (galleryImages.length !== 3) {
+//         return res.json({
+//           success: false,
+//           message: "Please upload exactly 3 gallery images",
+//         });
+//       }
+//       updateFields.galleryImages = await Promise.all(
+//         galleryImages.map((img) => uploadImage(img))
+//       );
+//     }
+
+//     // 4. Get and parse all body fields, including nested ones
 //     const {
 //       title,
 //       batch,
@@ -567,85 +600,21 @@ const tourProfile = async (req, res) => {
 //       remarks,
 //     } = req.body;
 
-//     const { titleImage, mapImage, galleryImages } = req.files;
-
-//     // Image upload helper
-//     const uploadImage = async (file) => {
-//       const result = await cloudinary.uploader.upload(file.path, {
-//         resource_type: "image",
-//       });
-//       return result.secure_url;
-//     };
-
-//     let updateFields = {};
-
-//     // 🔹 Images
-//     if (titleImage) {
-//       const url = await uploadImage(titleImage[0]);
-//       updateFields.titleImage = url;
-//     }
-
-//     if (mapImage) {
-//       const url = await uploadImage(mapImage[0]);
-//       updateFields.mapImage = url;
-//     }
-
-//     if (galleryImages) {
-//       if (galleryImages.length !== 3) {
-//         return res.json({
-//           success: false,
-//           message: "Please upload exactly 3 gallery images",
-//         });
-//       }
-//       const urls = await Promise.all(
-//         galleryImages.map((img) => uploadImage(img))
-//       );
-//       updateFields.galleryImages = urls;
-//     }
-
-//     // 🔹 Basic fields
-//     if (title) updateFields.title = title;
-//     if (remarks) updateFields.remarks = remarks;
-//     if (batch) updateFields.batch = batch;
-//     if (lastBookingDate) updateFields.lastBookingDate = lastBookingDate;
-//     if (typeof available !== "undefined") updateFields.available = available;
-
-//     // 🔹 Parse & validate nested objects from form data
-//     let parsedPrice, parsedAdvanceAmount;
-
+//     // 5. Use existing data as a fallback for calculations
+//     let parsedPrice = tour.price;
 //     if (price) {
 //       try {
 //         parsedPrice = JSON.parse(price);
-//         const {
-//           doubleSharing,
-//           tripleSharing,
-//           childWithBerth,
-//           childWithoutBerth,
-//         } = parsedPrice;
-//         if (
-//           isNaN(Number(doubleSharing)) ||
-//           isNaN(Number(tripleSharing)) ||
-//           (childWithBerth && isNaN(Number(childWithBerth))) ||
-//           (childWithoutBerth && isNaN(Number(childWithoutBerth)))
-//         ) {
-//           return res.json({ success: false, message: "Invalid price format" });
-//         }
 //         updateFields.price = parsedPrice;
 //       } catch {
 //         return res.json({ success: false, message: "Invalid JSON in price" });
 //       }
 //     }
 
+//     let parsedAdvanceAmount = tour.advanceAmount;
 //     if (advanceAmount) {
 //       try {
 //         parsedAdvanceAmount = JSON.parse(advanceAmount);
-//         const { adult, child } = parsedAdvanceAmount;
-//         if (isNaN(Number(adult)) || (child && isNaN(Number(child)))) {
-//           return res.json({
-//             success: false,
-//             message: "Invalid advance amount format",
-//           });
-//         }
 //         updateFields.advanceAmount = parsedAdvanceAmount;
 //       } catch {
 //         return res.json({
@@ -655,33 +624,28 @@ const tourProfile = async (req, res) => {
 //       }
 //     }
 
-//     // 🔹 Calculate balances if both price and advanceAmount are provided
+//     // 6. Recalculate balances using the most current data (either from the request or the DB)
 //     if (parsedPrice && parsedAdvanceAmount) {
 //       const adultAdvance = Number(parsedAdvanceAmount.adult);
 //       const childAdvance = Number(parsedAdvanceAmount.child);
 
-//       if (!isNaN(Number(parsedPrice.doubleSharing)) && !isNaN(adultAdvance)) {
-//         updateFields.balanceDouble =
-//           Number(parsedPrice.doubleSharing) - adultAdvance;
-//       }
-//       if (!isNaN(Number(parsedPrice.tripleSharing)) && !isNaN(adultAdvance)) {
-//         updateFields.balanceTriple =
-//           Number(parsedPrice.tripleSharing) - adultAdvance;
-//       }
-//       if (!isNaN(Number(parsedPrice.childWithBerth)) && !isNaN(childAdvance)) {
-//         updateFields.balanceChildWithBerth =
-//           Number(parsedPrice.childWithBerth) - childAdvance;
-//       }
-//       if (
-//         !isNaN(Number(parsedPrice.childWithoutBerth)) &&
-//         !isNaN(childAdvance)
-//       ) {
-//         updateFields.balanceChildWithoutBerth =
-//           Number(parsedPrice.childWithoutBerth) - childAdvance;
-//       }
+//       updateFields.balanceDouble =
+//         Number(parsedPrice.doubleSharing) - adultAdvance;
+//       updateFields.balanceTriple =
+//         Number(parsedPrice.tripleSharing) - adultAdvance;
+//       updateFields.balanceChildWithBerth =
+//         Number(parsedPrice.childWithBerth) - childAdvance;
+//       updateFields.balanceChildWithoutBerth =
+//         Number(parsedPrice.childWithoutBerth) - childAdvance;
 //     }
 
-//     // 🔹 Duration
+//     // 7. Update other fields (duration, completedTripsCount, etc.) as before
+//     if (title) updateFields.title = title;
+//     if (remarks) updateFields.remarks = remarks;
+//     if (batch) updateFields.batch = batch;
+//     if (lastBookingDate) updateFields.lastBookingDate = lastBookingDate;
+//     if (typeof available !== "undefined") updateFields.available = available;
+
 //     if (duration) {
 //       try {
 //         const parsed = JSON.parse(duration);
@@ -702,7 +666,6 @@ const tourProfile = async (req, res) => {
 //       }
 //     }
 
-//     // 🔹 Completed Trips
 //     if (completedTripsCount) {
 //       const trips = Number(completedTripsCount);
 //       if (isNaN(trips) || trips < 0) {
@@ -714,7 +677,6 @@ const tourProfile = async (req, res) => {
 //       updateFields.completedTripsCount = trips;
 //     }
 
-//     // 🔹 Optional Arrays (parsed only if provided)
 //     const optionalArrays = {
 //       destination,
 //       sightseeing,
@@ -731,9 +693,7 @@ const tourProfile = async (req, res) => {
 //       if (optionalArrays[key]) {
 //         try {
 //           const parsedArray = JSON.parse(optionalArrays[key]);
-//           if (!Array.isArray(parsedArray)) {
-//             throw new Error();
-//           }
+//           if (!Array.isArray(parsedArray)) throw new Error();
 //           if (key === "addons") {
 //             updateFields[key] = parsedArray.map((a) => ({
 //               name: a.name,
@@ -756,8 +716,8 @@ const tourProfile = async (req, res) => {
 //       }
 //     }
 
-//     // 🔹 Perform the update
-//     await tourModel.findByIdAndUpdate(tourId, updateFields);
+//     // 8. Final update
+//     await tourModel.findByIdAndUpdate(tourId, { $set: updateFields });
 
 //     res.json({ success: true, message: "Tour updated successfully" });
 //   } catch (error) {
@@ -765,7 +725,6 @@ const tourProfile = async (req, res) => {
 //     res.json({ success: false, message: error.message });
 //   }
 // };
-
 const updateTourProfile = async (req, res) => {
   try {
     const tourId = req.tour; // From auth middleware
@@ -825,6 +784,7 @@ const updateTourProfile = async (req, res) => {
       advanceAmount,
       addons,
       boardingPoints,
+      deboardingPoints, // ✅ added
       remarks,
     } = req.body;
 
@@ -867,7 +827,7 @@ const updateTourProfile = async (req, res) => {
         Number(parsedPrice.childWithoutBerth) - childAdvance;
     }
 
-    // 7. Update other fields (duration, completedTripsCount, etc.) as before
+    // 7. Update other fields (duration, completedTripsCount, etc.)
     if (title) updateFields.title = title;
     if (remarks) updateFields.remarks = remarks;
     if (batch) updateFields.batch = batch;
@@ -905,6 +865,7 @@ const updateTourProfile = async (req, res) => {
       updateFields.completedTripsCount = trips;
     }
 
+    // 8. Handle all optional arrays
     const optionalArrays = {
       destination,
       sightseeing,
@@ -915,6 +876,7 @@ const updateTourProfile = async (req, res) => {
       flightDetails,
       addons,
       boardingPoints,
+      deboardingPoints, // ✅ included here
     };
 
     for (let key in optionalArrays) {
@@ -922,12 +884,13 @@ const updateTourProfile = async (req, res) => {
         try {
           const parsedArray = JSON.parse(optionalArrays[key]);
           if (!Array.isArray(parsedArray)) throw new Error();
+
           if (key === "addons") {
             updateFields[key] = parsedArray.map((a) => ({
               name: a.name,
               amount: Number(a.amount) || 0,
             }));
-          } else if (key === "boardingPoints") {
+          } else if (key === "boardingPoints" || key === "deboardingPoints") {
             updateFields[key] = parsedArray.map((a) => ({
               stationCode: a.stationCode,
               stationName: a.stationName,
@@ -944,7 +907,7 @@ const updateTourProfile = async (req, res) => {
       }
     }
 
-    // 8. Final update
+    // 9. Final update
     await tourModel.findByIdAndUpdate(tourId, { $set: updateFields });
 
     res.json({ success: true, message: "Tour updated successfully" });
