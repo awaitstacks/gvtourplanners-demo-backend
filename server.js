@@ -18,8 +18,14 @@ connectCloudinary();
 //middlewares
 
 app.use(express.json());
-app.use(cors());
-
+// app.use(cors());
+app.use(
+  cors({
+    origin: "https://gvtourplanners-demo-admin.vercel.app",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 //API endpoints
 
 //Admin
