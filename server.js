@@ -23,7 +23,7 @@ app.use(
   cors({
     origin: "https://gvtourplanners-demo-admin.vercel.app",
     methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "ttoken"], // <-- Add "ttoken" here
   })
 );
 //API endpoints
