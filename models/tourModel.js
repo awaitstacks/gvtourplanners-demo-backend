@@ -97,10 +97,6 @@ const tourSchema = new mongoose.Schema({
   completedTripsCount: { type: Number, default: 0 },
 
   available: { type: Boolean, default: true },
-
-  // For individual tour login
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
 });
 
 const tourModel = mongoose.models.tour || mongoose.model("tour", tourSchema);

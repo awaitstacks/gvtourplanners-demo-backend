@@ -337,6 +337,251 @@ const updateProfile = async (req, res) => {
 //   }
 // };
 
+// const addToTrolly = async (req, res) => {
+//   try {
+//     const {
+//       tourId,
+//       travellers = [],
+//       billingAddress,
+//       bookingType,
+//       contact,
+//     } = req.body;
+//     const userId = req.user._id;
+
+//     if (!tourId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Tour ID is required.",
+//       });
+//     }
+
+//     const tour = await tourModel.findById(tourId);
+//     if (!tour) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Tour not found.",
+//       });
+//     }
+
+//     let totalAdvance = 0;
+//     let totalBalance = 0;
+//     const updatedTravellers = [];
+
+//     for (const trav of travellers) {
+//       const age = Number(trav.age);
+
+//       // --- Age-based validation check ---
+//       if (isNaN(age) || age < 1) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Booking failed: Invalid age for traveller ${
+//             trav.firstName || "Unknown"
+//           }. Age must be a number greater than 0.`,
+//         });
+//       }
+
+//       if (age >= 1 && age <= 5) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Booking failed: Kid booking is not allowed for age ${age}.`,
+//         });
+//       }
+
+//       // --- Boarding Point Validation ---
+//       if (!trav.boardingPoint) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Boarding point is required for traveller: ${
+//             trav.firstName || "Unknown"
+//           }`,
+//         });
+//       }
+
+//       const validBoarding = tour.boardingPoints?.find(
+//         (bp) =>
+//           bp.stationCode === trav.boardingPoint.stationCode ||
+//           bp.stationName === trav.boardingPoint.stationName
+//       );
+
+//       if (!validBoarding) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Invalid boarding point for traveller: ${
+//             trav.firstName || "Unknown"
+//           }`,
+//         });
+//       }
+
+//       const selectedBoarding = {
+//         stationCode: validBoarding.stationCode,
+//         stationName: validBoarding.stationName,
+//       };
+
+//       // --- Deboarding Point Validation (NEW) ---
+//       if (!trav.deboardingPoint) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Deboarding point is required for traveller: ${
+//             trav.firstName || "Unknown"
+//           }`,
+//         });
+//       }
+
+//       const validDeboarding = tour.deboardingPoints?.find(
+//         (dp) =>
+//           dp.stationCode === trav.deboardingPoint.stationCode ||
+//           dp.stationName === trav.deboardingPoint.stationName
+//       );
+
+//       if (!validDeboarding) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Invalid deboarding point for traveller: ${
+//             trav.firstName || "Unknown"
+//           }`,
+//         });
+//       }
+
+//       const selectedDeboarding = {
+//         stationCode: validDeboarding.stationCode,
+//         stationName: validDeboarding.stationName,
+//       };
+
+//       let addonPrice = 0;
+//       let selectedAddonData = null;
+//       if (trav.selectedAddon?.name) {
+//         const validAddon = tour.addons?.find(
+//           (a) => a.name === trav.selectedAddon.name
+//         );
+//         if (!validAddon) {
+//           return res.status(400).json({
+//             success: false,
+//             message: `Invalid add-on for traveller: ${
+//               trav.firstName || "Unknown"
+//             }`,
+//           });
+//         }
+//         addonPrice = Number(validAddon.amount) || 0;
+//         selectedAddonData = {
+//           name: validAddon.name,
+//           price: validAddon.amount,
+//         };
+//       }
+
+//       let travellerAdvance = 0;
+//       let travellerBalance = 0;
+
+//       // --- Age-based pricing logic ---
+//       if (age >= 11) {
+//         // Adult pricing (age 11 and above)
+//         travellerAdvance = Number(tour.advanceAmount?.adult) || 0;
+//         switch (trav.sharingType?.toLowerCase()) {
+//           case "double":
+//             travellerBalance = Number(balanceDouble) || 0;
+//             break;
+//           case "triple":
+//             travellerBalance = Number(balanceTriple) || 0;
+//             break;
+//           default:
+//             return res.status(400).json({
+//               success: false,
+//               message: `Invalid sharing type for adult traveller: ${
+//                 trav.firstName || "Unknown"
+//               }`,
+//             });
+//         }
+//       } else if (age >= 6 && age <= 10) {
+//         // Child pricing (age 6 to 10)
+//         travellerAdvance = Number(tour.advanceAmount?.child) || 0;
+//         switch (trav.sharingType?.toLowerCase()) {
+//           case "withberth":
+//             travellerBalance = Number(balanceChildWithBerth) || 0;
+//             break;
+//           case "withoutberth":
+//             travellerBalance = Number(balanceChildWithoutBerth) || 0;
+//             break;
+//           default:
+//             return res.status(400).json({
+//               success: false,
+//               message: `Invalid sharing type for child traveller: ${
+//                 trav.firstName || "Unknown"
+//               }`,
+//             });
+//         }
+//       }
+
+//       travellerAdvance += addonPrice;
+//       travellerBalance += addonPrice; // The addon price should be added to the balance as well if it's not part of the advance amount.
+
+//       if (isNaN(travellerAdvance) || isNaN(travellerBalance)) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Booking failed: Could not calculate prices for traveller ${
+//             trav.firstName || "Unknown"
+//           }. Please check tour prices.`,
+//         });
+//       }
+
+//       totalAdvance += travellerAdvance;
+//       totalBalance += travellerBalance;
+
+//       updatedTravellers.push({
+//         ...trav,
+//         boardingPoint: selectedBoarding,
+//         deboardingPoint: selectedDeboarding,
+//         selectedAddon: selectedAddonData,
+//         remarks: trav.remarks || null,
+//       });
+//     }
+
+//     const bookingData = {
+//       userId,
+//       tourId,
+//       userData: {
+//         id: userId,
+//       },
+//       tourData: {
+//         id: tour._id,
+//         title: tour.title,
+//         titleImage: tour.titleImage,
+//         duration: tour.duration,
+//         price: tour.price,
+//       },
+//       travellers: updatedTravellers,
+//       billingAddress: billingAddress || {},
+//       contact: {
+//         email: contact?.email,
+//         mobile: contact?.mobile,
+//       },
+//       bookingType: bookingType || "online",
+//       payment: {
+//         advance: {
+//           amount: totalAdvance,
+//         },
+//         balance: {
+//           amount: totalBalance,
+//         },
+//       },
+//       status: "pending",
+//     };
+
+//     const newBooking = new tourBookingModel(bookingData);
+//     await newBooking.save();
+
+//     return res.status(201).json({
+//       success: true,
+//       message: "Booking added to trolley successfully.",
+//       booking: newBooking,
+//     });
+//   } catch (error) {
+//     console.error("Error adding to trolley:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error.",
+//     });
+//   }
+// };
+
 const addToTrolly = async (req, res) => {
   try {
     const {
@@ -371,19 +616,12 @@ const addToTrolly = async (req, res) => {
       const age = Number(trav.age);
 
       // --- Age-based validation check ---
-      if (isNaN(age) || age < 1) {
+      if (isNaN(age) || age < 1 || (age >= 1 && age <= 5)) {
         return res.status(400).json({
           success: false,
           message: `Booking failed: Invalid age for traveller ${
             trav.firstName || "Unknown"
-          }. Age must be a number greater than 0.`,
-        });
-      }
-
-      if (age >= 1 && age <= 5) {
-        return res.status(400).json({
-          success: false,
-          message: `Booking failed: Kid booking is not allowed for age ${age}.`,
+          }. Age must be a number greater than 5.`,
         });
       }
 
@@ -398,9 +636,7 @@ const addToTrolly = async (req, res) => {
       }
 
       const validBoarding = tour.boardingPoints?.find(
-        (bp) =>
-          bp.stationCode === trav.boardingPoint.stationCode ||
-          bp.stationName === trav.boardingPoint.stationName
+        (bp) => bp.stationCode === trav.boardingPoint.stationCode
       );
 
       if (!validBoarding) {
@@ -417,7 +653,7 @@ const addToTrolly = async (req, res) => {
         stationName: validBoarding.stationName,
       };
 
-      // --- Deboarding Point Validation (NEW) ---
+      // --- Deboarding Point Validation ---
       if (!trav.deboardingPoint) {
         return res.status(400).json({
           success: false,
@@ -428,9 +664,7 @@ const addToTrolly = async (req, res) => {
       }
 
       const validDeboarding = tour.deboardingPoints?.find(
-        (dp) =>
-          dp.stationCode === trav.deboardingPoint.stationCode ||
-          dp.stationName === trav.deboardingPoint.stationName
+        (dp) => dp.stationCode === trav.deboardingPoint.stationCode
       );
 
       if (!validDeboarding) {
@@ -477,10 +711,10 @@ const addToTrolly = async (req, res) => {
         travellerAdvance = Number(tour.advanceAmount?.adult) || 0;
         switch (trav.sharingType?.toLowerCase()) {
           case "double":
-            travellerBalance = Number(tour.price?.doubleSharing) || 0;
+            travellerBalance = Number(tour.balanceDouble) || 0;
             break;
           case "triple":
-            travellerBalance = Number(tour.price?.tripleSharing) || 0;
+            travellerBalance = Number(tour.balanceTriple) || 0;
             break;
           default:
             return res.status(400).json({
@@ -495,10 +729,10 @@ const addToTrolly = async (req, res) => {
         travellerAdvance = Number(tour.advanceAmount?.child) || 0;
         switch (trav.sharingType?.toLowerCase()) {
           case "withberth":
-            travellerBalance = Number(tour.price?.childWithBerth) || 0;
+            travellerBalance = Number(tour.balanceChildWithBerth) || 0;
             break;
           case "withoutberth":
-            travellerBalance = Number(tour.price?.childWithoutBerth) || 0;
+            travellerBalance = Number(tour.balanceChildWithoutBerth) || 0;
             break;
           default:
             return res.status(400).json({
@@ -511,8 +745,6 @@ const addToTrolly = async (req, res) => {
       }
 
       travellerAdvance += addonPrice;
-      travellerBalance += addonPrice; // The addon price should be added to the balance as well if it's not part of the advance amount.
-
       if (isNaN(travellerAdvance) || isNaN(travellerBalance)) {
         return res.status(400).json({
           success: false,

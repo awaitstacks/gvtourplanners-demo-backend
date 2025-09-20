@@ -19,11 +19,14 @@ const tourRouter = express.Router();
 
 tourRouter.get("/list", tourList);
 tourRouter.post("/login", loginTour);
-tourRouter.get("/bookings-tour", authTour, bookingsTour);
+// tourRouter.get("/bookings-tour", authTour, bookingsTour);
+
+tourRouter.get("/bookings-tour/:tourId", authTour, bookingsTour);
 tourRouter.post("/complete-bookingtour", authTour, bookingComplete);
 
-tourRouter.get("/tour-dashboard", authTour, tourDashboard);
-tourRouter.get("/tour-profile", authTour, tourProfile);
+// tourRouter.get("/tour-dashboard", authTour, tourDashboard);
+tourRouter.get("/tour-dashboard/:tourId", authTour, tourDashboard);
+tourRouter.get("/tour-profile/:tourId", authTour, tourProfile);
 // tourRouter.post("/update-tourprofile", authTour, updateTourProfile);
 tourRouter.put("/update-tourprofile", authTour, tourUpload, updateTourProfile);
 tourRouter.put("/mark-advancepaid", authTour, markOfflineAdvancePaid);

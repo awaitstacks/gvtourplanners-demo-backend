@@ -43,31 +43,24 @@ const loginTour = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const tour = await tourModel.findOne({ email });
-    if (!tour) {
+    if (
+      email === process.env.TOUR_EMAIL &&
+      password === process.env.TOUR_PASSWORD
+    ) {
+      const token = jwt.sign(email + password, process.env.JWT_SECRET);
       return res.json({
-        success: false,
-        message: "Invalid email",
+        success: true,
+        token,
+        message: "Tour login successful",
       });
     }
-
-    const isMatch = await bcrypt.compare(password, tour.password);
-    if (!isMatch) {
-      return res.json({
-        success: false,
-        message: "Invalid password",
-      });
-    }
-
-    const token = jwt.sign({ id: tour._id }, process.env.JWT_SECRET);
 
     res.json({
-      success: true,
-      token,
-      message: "Tour login successful",
+      success: false,
+      message: "Invalid credentials",
     });
   } catch (error) {
-    console.error("Login error:", error);
+    console.error("Tour login error:", error);
     res.json({
       success: false,
       message: error.message,
@@ -77,7 +70,14 @@ const loginTour = async (req, res) => {
 
 const bookingsTour = async (req, res) => {
   try {
-    const tourId = req.tour; // ✅ take from middleware, not params
+    // Get the tourId from the URL parameter
+    const tourId = req.params.tourId;
+
+    if (!tourId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Tour ID is missing" });
+    }
 
     const bookings = await tourBookingModel
       .find({ tourId })
@@ -104,20 +104,26 @@ const bookingsTour = async (req, res) => {
 
 const bookingComplete = async (req, res) => {
   try {
-    const { bookingId } = req.body;
-    const tourId = req.tour; // From middleware
+    const { bookingId, tourId } = req.body; // Destructure tourId from the request body
 
     if (!bookingId) {
-      return res.json({
+      return res.status(400).json({
         success: false,
         message: "Booking ID is missing. Please provide a valid booking ID.",
+      });
+    }
+
+    if (!tourId) {
+      return res.status(400).json({
+        success: false,
+        message: "Tour ID is missing. Please provide a valid tour ID.",
       });
     }
 
     // 1. Fetch booking
     const booking = await tourBookingModel.findById(bookingId);
     if (!booking) {
-      return res.json({
+      return res.status(404).json({
         success: false,
         message: "No booking found with the provided booking ID.",
       });
@@ -125,7 +131,7 @@ const bookingComplete = async (req, res) => {
 
     // 2. Ensure the booking belongs to this tour
     if (booking.tourId.toString() !== tourId) {
-      return res.json({
+      return res.status(403).json({
         success: false,
         message:
           "You are not authorized to modify this booking. It belongs to another tour.",
@@ -226,13 +232,20 @@ const bookingComplete = async (req, res) => {
 
 const markOfflineAdvancePaid = async (req, res) => {
   try {
-    const { bookingId } = req.body;
-    const tourId = req.tour; // Assuming this comes from middleware
+    const { bookingId, tourId } = req.body; // Destructure tourId from the request body
 
     if (!bookingId) {
       return res.status(400).json({
         success: false,
         message: "bookingId is required",
+      });
+    }
+
+    // Check if tourId is provided
+    if (!tourId) {
+      return res.status(400).json({
+        success: false,
+        message: "tourId is required",
       });
     }
 
@@ -245,7 +258,7 @@ const markOfflineAdvancePaid = async (req, res) => {
       });
     }
 
-    // Ensure the booking belongs to this tour
+    // Ensure the booking belongs to the selected tour
     if (booking.tourId.toString() !== tourId) {
       return res.status(403).json({
         success: false,
@@ -332,13 +345,20 @@ const markOfflineAdvancePaid = async (req, res) => {
 
 const markOfflineBalancePaid = async (req, res) => {
   try {
-    const { bookingId } = req.body;
-    const tourId = req.tour; // From middleware
+    const { bookingId, tourId } = req.body; // Destructure tourId from the request body
 
     if (!bookingId) {
       return res.status(400).json({
         success: false,
         message: "bookingId is required",
+      });
+    }
+
+    if (!tourId) {
+      // Check if tourId is provided
+      return res.status(400).json({
+        success: false,
+        message: "tourId is required",
       });
     }
 
@@ -351,7 +371,7 @@ const markOfflineBalancePaid = async (req, res) => {
       });
     }
 
-    // Ensure the booking belongs to this tour
+    // Ensure the booking belongs to the selected tour
     if (booking.tourId.toString() !== tourId) {
       return res.status(403).json({
         success: false,
@@ -475,30 +495,47 @@ const updateTraveller = async (req, res) => {
   }
 };
 
+// New Controller Function
 const tourDashboard = async (req, res) => {
   try {
-    const tourId = req.tour;
+    // Get the tourId from the URL parameter
+    const tourId = req.params.tourId;
 
-    // Fetch all bookings for this tour
+    if (!tourId) {
+      return res.status(400).json({
+        success: false,
+        message: "tourId is required",
+      });
+    }
+
+    // Fetch all bookings for the specified tourId
     const bookings = await tourBookingModel.find({ tourId });
+
+    if (!bookings || bookings.length === 0) {
+      // You can decide whether to send a 404 or a 200 with an empty array
+      return res.status(200).json({
+        success: true,
+        data: {
+          totalEarnings: 0,
+          totalTravellers: 0,
+          totalUsers: 0,
+          bookings: [],
+        },
+      });
+    }
 
     let totalEarnings = 0;
     let totalTravellers = 0;
     let uniqueUsers = new Set();
 
     bookings.forEach((booking) => {
-      // ✅ Add earnings only if BOTH advance and balance are paid
       if (booking.payment?.advance?.paid && booking.payment?.balance?.paid) {
         totalEarnings +=
           booking.payment.advance.amount + booking.payment.balance.amount;
       }
-
-      // ✅ Count travellers
       if (Array.isArray(booking.travellers)) {
         totalTravellers += booking.travellers.length;
       }
-
-      // ✅ Collect unique users
       if (booking.userId) {
         uniqueUsers.add(booking.userId.toString());
       }
@@ -514,8 +551,8 @@ const tourDashboard = async (req, res) => {
       },
     });
   } catch (error) {
-    console.log(error);
-    res.json({
+    console.error(error);
+    res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -524,217 +561,54 @@ const tourDashboard = async (req, res) => {
 
 const tourProfile = async (req, res) => {
   try {
-    const tourId = req.tour;
+    const { tourId } = req.params; // Get tourId from URL parameters
+
+    if (!tourId) {
+      return res.status(400).json({
+        success: false,
+        message: "Tour ID is missing from the URL.",
+      });
+    }
+
     const tourProfileData = await tourModel
       .findById(tourId)
       .select("-password");
-    res.json({ success: true, tourProfileData });
+
+    if (!tourProfileData) {
+      return res.status(404).json({
+        success: false,
+        message: "Tour profile not found.",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      tourProfileData,
+    });
   } catch (error) {
-    console.log(error);
-    res.json({
+    console.error("tourProfile error:", error);
+    res.status(500).json({
       success: false,
-      message: error.message,
+      message: "An unexpected error occurred.",
     });
   }
 };
 
-// const updateTourProfile = async (req, res) => {
-//   try {
-//     const tourId = req.tour; // From auth middleware
-//     const tour = await tourModel.findById(tourId);
-//     if (!tour) {
-//       return res.json({ success: false, message: "Tour not found" });
-//     }
-
-//     // 1. Destructure and get files
-//     const { titleImage, mapImage, galleryImages } = req.files;
-
-//     // 2. Image upload helper
-//     const uploadImage = async (file) => {
-//       const result = await cloudinary.uploader.upload(file.path, {
-//         resource_type: "image",
-//       });
-//       return result.secure_url;
-//     };
-
-//     let updateFields = {};
-
-//     // 3. Process images
-//     if (titleImage) {
-//       updateFields.titleImage = await uploadImage(titleImage[0]);
-//     }
-//     if (mapImage) {
-//       updateFields.mapImage = await uploadImage(mapImage[0]);
-//     }
-//     if (galleryImages) {
-//       if (galleryImages.length !== 3) {
-//         return res.json({
-//           success: false,
-//           message: "Please upload exactly 3 gallery images",
-//         });
-//       }
-//       updateFields.galleryImages = await Promise.all(
-//         galleryImages.map((img) => uploadImage(img))
-//       );
-//     }
-
-//     // 4. Get and parse all body fields, including nested ones
-//     const {
-//       title,
-//       batch,
-//       duration,
-//       price,
-//       destination,
-//       sightseeing,
-//       itinerary,
-//       includes,
-//       excludes,
-//       trainDetails,
-//       flightDetails,
-//       lastBookingDate,
-//       completedTripsCount,
-//       available,
-//       advanceAmount,
-//       addons,
-//       boardingPoints,
-//       remarks,
-//     } = req.body;
-
-//     // 5. Use existing data as a fallback for calculations
-//     let parsedPrice = tour.price;
-//     if (price) {
-//       try {
-//         parsedPrice = JSON.parse(price);
-//         updateFields.price = parsedPrice;
-//       } catch {
-//         return res.json({ success: false, message: "Invalid JSON in price" });
-//       }
-//     }
-
-//     let parsedAdvanceAmount = tour.advanceAmount;
-//     if (advanceAmount) {
-//       try {
-//         parsedAdvanceAmount = JSON.parse(advanceAmount);
-//         updateFields.advanceAmount = parsedAdvanceAmount;
-//       } catch {
-//         return res.json({
-//           success: false,
-//           message: "Invalid JSON in advanceAmount",
-//         });
-//       }
-//     }
-
-//     // 6. Recalculate balances using the most current data (either from the request or the DB)
-//     if (parsedPrice && parsedAdvanceAmount) {
-//       const adultAdvance = Number(parsedAdvanceAmount.adult);
-//       const childAdvance = Number(parsedAdvanceAmount.child);
-
-//       updateFields.balanceDouble =
-//         Number(parsedPrice.doubleSharing) - adultAdvance;
-//       updateFields.balanceTriple =
-//         Number(parsedPrice.tripleSharing) - adultAdvance;
-//       updateFields.balanceChildWithBerth =
-//         Number(parsedPrice.childWithBerth) - childAdvance;
-//       updateFields.balanceChildWithoutBerth =
-//         Number(parsedPrice.childWithoutBerth) - childAdvance;
-//     }
-
-//     // 7. Update other fields (duration, completedTripsCount, etc.) as before
-//     if (title) updateFields.title = title;
-//     if (remarks) updateFields.remarks = remarks;
-//     if (batch) updateFields.batch = batch;
-//     if (lastBookingDate) updateFields.lastBookingDate = lastBookingDate;
-//     if (typeof available !== "undefined") updateFields.available = available;
-
-//     if (duration) {
-//       try {
-//         const parsed = JSON.parse(duration);
-//         const days = Number(parsed.days);
-//         const nights = Number(parsed.nights);
-//         if (isNaN(days) || isNaN(nights)) {
-//           return res.json({
-//             success: false,
-//             message: "Invalid duration format",
-//           });
-//         }
-//         updateFields.duration = { days, nights };
-//       } catch {
-//         return res.json({
-//           success: false,
-//           message: "Invalid JSON in duration",
-//         });
-//       }
-//     }
-
-//     if (completedTripsCount) {
-//       const trips = Number(completedTripsCount);
-//       if (isNaN(trips) || trips < 0) {
-//         return res.json({
-//           success: false,
-//           message: "Invalid completedTripsCount",
-//         });
-//       }
-//       updateFields.completedTripsCount = trips;
-//     }
-
-//     const optionalArrays = {
-//       destination,
-//       sightseeing,
-//       itinerary,
-//       includes,
-//       excludes,
-//       trainDetails,
-//       flightDetails,
-//       addons,
-//       boardingPoints,
-//     };
-
-//     for (let key in optionalArrays) {
-//       if (optionalArrays[key]) {
-//         try {
-//           const parsedArray = JSON.parse(optionalArrays[key]);
-//           if (!Array.isArray(parsedArray)) throw new Error();
-//           if (key === "addons") {
-//             updateFields[key] = parsedArray.map((a) => ({
-//               name: a.name,
-//               amount: Number(a.amount) || 0,
-//             }));
-//           } else if (key === "boardingPoints") {
-//             updateFields[key] = parsedArray.map((a) => ({
-//               stationCode: a.stationCode,
-//               stationName: a.stationName,
-//             }));
-//           } else {
-//             updateFields[key] = parsedArray;
-//           }
-//         } catch {
-//           return res.json({
-//             success: false,
-//             message: `Invalid JSON in ${key}`,
-//           });
-//         }
-//       }
-//     }
-
-//     // 8. Final update
-//     await tourModel.findByIdAndUpdate(tourId, { $set: updateFields });
-
-//     res.json({ success: true, message: "Tour updated successfully" });
-//   } catch (error) {
-//     console.error("Update Tour Error:", error);
-//     res.json({ success: false, message: error.message });
-//   }
-// };
+// A new controller that gets the tourId from the request body
 const updateTourProfile = async (req, res) => {
   try {
-    const tourId = req.tour; // From auth middleware
+    const { tourId } = req.body; // 🚨 CHANGE: Get tourId from the request body
+    if (!tourId) {
+      return res.json({ success: false, message: "Tour ID is missing" });
+    }
+
     const tour = await tourModel.findById(tourId);
     if (!tour) {
       return res.json({ success: false, message: "Tour not found" });
     }
 
     // 1. Destructure and get files
-    const { titleImage, mapImage, galleryImages } = req.files;
+    const { titleImage, mapImage, galleryImages } = req.files || {};
 
     // 2. Image upload helper
     const uploadImage = async (file) => {
@@ -784,7 +658,7 @@ const updateTourProfile = async (req, res) => {
       advanceAmount,
       addons,
       boardingPoints,
-      deboardingPoints, // ✅ added
+      deboardingPoints,
       remarks,
     } = req.body;
 
@@ -876,7 +750,7 @@ const updateTourProfile = async (req, res) => {
       flightDetails,
       addons,
       boardingPoints,
-      deboardingPoints, // ✅ included here
+      deboardingPoints,
     };
 
     for (let key in optionalArrays) {
@@ -917,16 +791,21 @@ const updateTourProfile = async (req, res) => {
   }
 };
 
-// ✅ Mark Advance Receipt Sent
 const markAdvanceReceiptSent = async (req, res) => {
   try {
-    const { bookingId } = req.body;
-    const tourId = req.tour; // from middleware
+    const { bookingId, tourId } = req.body; // Destructure tourId from the request body
 
     if (!bookingId) {
       return res.status(400).json({
         success: false,
         message: "bookingId is required",
+      });
+    }
+
+    if (!tourId) {
+      return res.status(400).json({
+        success: false,
+        message: "tourId is required",
       });
     }
 
@@ -939,7 +818,7 @@ const markAdvanceReceiptSent = async (req, res) => {
       });
     }
 
-    // Ensure booking belongs to the logged-in tour
+    // Ensure booking belongs to the selected tour
     if (booking.tourId.toString() !== tourId) {
       return res.status(403).json({
         success: false,
@@ -949,7 +828,7 @@ const markAdvanceReceiptSent = async (req, res) => {
 
     // Mark receipt as sent
     booking.receipts.advanceReceiptSent = true;
-    booking.receipts.advanceReceiptSentAt = new Date(); // optional if you want timestamp
+    booking.receipts.advanceReceiptSentAt = new Date();
 
     await booking.save({ validateModifiedOnly: true });
 
@@ -967,16 +846,21 @@ const markAdvanceReceiptSent = async (req, res) => {
   }
 };
 
-// ✅ Mark Balance Receipt Sent
 const markBalanceReceiptSent = async (req, res) => {
   try {
-    const { bookingId } = req.body;
-    const tourId = req.tour; // from middleware
+    const { bookingId, tourId } = req.body; // Destructure tourId from the request body
 
     if (!bookingId) {
       return res.status(400).json({
         success: false,
         message: "bookingId is required",
+      });
+    }
+
+    if (!tourId) {
+      return res.status(400).json({
+        success: false,
+        message: "tourId is required",
       });
     }
 
@@ -989,7 +873,7 @@ const markBalanceReceiptSent = async (req, res) => {
       });
     }
 
-    // Ensure booking belongs to the logged-in tour
+    // Ensure booking belongs to the selected tour
     if (booking.tourId.toString() !== tourId) {
       return res.status(403).json({
         success: false,
@@ -999,7 +883,7 @@ const markBalanceReceiptSent = async (req, res) => {
 
     // Mark receipt as sent
     booking.receipts.balanceReceiptSent = true;
-    booking.receipts.balanceReceiptSentAt = new Date(); // optional timestamp
+    booking.receipts.balanceReceiptSentAt = new Date();
 
     await booking.save({ validateModifiedOnly: true });
 
@@ -1016,7 +900,6 @@ const markBalanceReceiptSent = async (req, res) => {
     });
   }
 };
-
 export {
   tourList,
   changeTourAvailability,
