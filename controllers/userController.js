@@ -371,19 +371,12 @@ const addToTrolly = async (req, res) => {
       const age = Number(trav.age);
 
       // --- Age-based validation check ---
-      if (isNaN(age) || age < 1) {
+      if (isNaN(age) || age < 1 || (age >= 1 && age <= 5)) {
         return res.status(400).json({
           success: false,
           message: `Booking failed: Invalid age for traveller ${
             trav.firstName || "Unknown"
-          }. Age must be a number greater than 0.`,
-        });
-      }
-
-      if (age >= 1 && age <= 5) {
-        return res.status(400).json({
-          success: false,
-          message: `Booking failed: Kid booking is not allowed for age ${age}.`,
+          }. Age must be a number greater than 5.`,
         });
       }
 
@@ -398,9 +391,7 @@ const addToTrolly = async (req, res) => {
       }
 
       const validBoarding = tour.boardingPoints?.find(
-        (bp) =>
-          bp.stationCode === trav.boardingPoint.stationCode ||
-          bp.stationName === trav.boardingPoint.stationName
+        (bp) => bp.stationCode === trav.boardingPoint.stationCode
       );
 
       if (!validBoarding) {
@@ -417,7 +408,7 @@ const addToTrolly = async (req, res) => {
         stationName: validBoarding.stationName,
       };
 
-      // --- Deboarding Point Validation (NEW) ---
+      // --- Deboarding Point Validation ---
       if (!trav.deboardingPoint) {
         return res.status(400).json({
           success: false,
@@ -428,9 +419,7 @@ const addToTrolly = async (req, res) => {
       }
 
       const validDeboarding = tour.deboardingPoints?.find(
-        (dp) =>
-          dp.stationCode === trav.deboardingPoint.stationCode ||
-          dp.stationName === trav.deboardingPoint.stationName
+        (dp) => dp.stationCode === trav.deboardingPoint.stationCode
       );
 
       if (!validDeboarding) {
@@ -477,10 +466,10 @@ const addToTrolly = async (req, res) => {
         travellerAdvance = Number(tour.advanceAmount?.adult) || 0;
         switch (trav.sharingType?.toLowerCase()) {
           case "double":
-            travellerBalance = Number(balanceDouble) || 0;
+            travellerBalance = Number(tour.balanceDouble) || 0;
             break;
           case "triple":
-            travellerBalance = Number(balanceTriple) || 0;
+            travellerBalance = Number(tour.balanceTriple) || 0;
             break;
           default:
             return res.status(400).json({
@@ -495,10 +484,10 @@ const addToTrolly = async (req, res) => {
         travellerAdvance = Number(tour.advanceAmount?.child) || 0;
         switch (trav.sharingType?.toLowerCase()) {
           case "withberth":
-            travellerBalance = Number(balanceChildWithBerth) || 0;
+            travellerBalance = Number(tour.balanceChildWithBerth) || 0;
             break;
           case "withoutberth":
-            travellerBalance = Number(balanceChildWithoutBerth) || 0;
+            travellerBalance = Number(tour.balanceChildWithoutBerth) || 0;
             break;
           default:
             return res.status(400).json({
@@ -511,7 +500,7 @@ const addToTrolly = async (req, res) => {
       }
 
       travellerAdvance += addonPrice;
-      travellerBalance += addonPrice; // The addon price should be added to the balance as well if it's not part of the advance amount.
+      travellerBalance += addonPrice;
 
       if (isNaN(travellerAdvance) || isNaN(travellerBalance)) {
         return res.status(400).json({
