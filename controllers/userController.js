@@ -477,10 +477,10 @@ const addToTrolly = async (req, res) => {
         travellerAdvance = Number(tour.advanceAmount?.adult) || 0;
         switch (trav.sharingType?.toLowerCase()) {
           case "double":
-            travellerBalance = Number(tour.price?.doubleSharing) || 0;
+            travellerBalance = Number(balanceDouble) || 0;
             break;
           case "triple":
-            travellerBalance = Number(tour.price?.tripleSharing) || 0;
+            travellerBalance = Number(balanceTriple) || 0;
             break;
           default:
             return res.status(400).json({
@@ -495,10 +495,10 @@ const addToTrolly = async (req, res) => {
         travellerAdvance = Number(tour.advanceAmount?.child) || 0;
         switch (trav.sharingType?.toLowerCase()) {
           case "withberth":
-            travellerBalance = Number(tour.price?.childWithBerth) || 0;
+            travellerBalance = Number(balanceChildWithBerth) || 0;
             break;
           case "withoutberth":
-            travellerBalance = Number(tour.price?.childWithoutBerth) || 0;
+            travellerBalance = Number(balanceChildWithoutBerth) || 0;
             break;
           default:
             return res.status(400).json({
