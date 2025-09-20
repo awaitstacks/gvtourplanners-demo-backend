@@ -500,7 +500,7 @@ const addToTrolly = async (req, res) => {
       }
 
       travellerAdvance += addonPrice;
-      travellerBalance += addonPrice;
+      
 
       if (isNaN(travellerAdvance) || isNaN(travellerBalance)) {
         return res.status(400).json({
