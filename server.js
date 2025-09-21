@@ -23,7 +23,13 @@ app.use(
   cors({
     origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization", "ttoken"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "ttoken",
+      "token",
+      "aToken",
+    ],
   })
 );
 //API endpoints
