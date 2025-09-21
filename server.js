@@ -21,15 +21,9 @@ app.use(express.json());
 // app.use(cors());
 app.use(
   cors({
-    origin: [
-      "https://gvtourplanners-demo-admin.vercel.app",
-      "https://gvtourplanners-demo-backend-2.onrender.com",
-      "https://gvtourplanners-demo-frontend.vercel.app",
-      "http://localhost:5174",
-      "http://localhost:5173",
-    ],
+    origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization", "ttoken"], // <-- Add "ttoken" here
+    allowedHeaders: ["Content-Type", "Authorization", "ttoken"],
   })
 );
 //API endpoints
