@@ -1072,6 +1072,101 @@ const viewTourBalance = async (req, res) => {
   }
 };
 
+// const updateTourBalance = async (req, res) => {
+//   try {
+//     const { bookingId } = req.params; // Remains from params
+
+//     // Check if req.body exists and contains updates
+//     if (!req.body || !req.body.updates) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Request body is missing or does not contain updates",
+//       });
+//     }
+
+//     const { updates } = req.body;
+
+//     // Validate input
+//     if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid or missing booking ID",
+//       });
+//     }
+
+//     if (!Array.isArray(updates) || updates.length === 0) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Updates must be a non-empty array",
+//       });
+//     }
+
+//     // Validate each update
+//     for (const update of updates) {
+//       const { remarks, amount } = update;
+
+//       // Amount must be a number (can be positive or negative)
+//       if (amount === undefined || typeof amount !== "number") {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Each update must include a valid amount",
+//         });
+//       }
+
+//       // Remarks, if provided, must be a non-empty string
+//       if (remarks && (typeof remarks !== "string" || remarks.trim() === "")) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Remarks, if provided, must be a non-empty string",
+//         });
+//       }
+//     }
+
+//     // Find the booking by ID
+//     const booking = await tourBookingModel.findById(bookingId);
+//     if (!booking) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Booking not found",
+//       });
+//     }
+
+//     // Apply updates
+//     for (const update of updates) {
+//       const { remarks, amount } = update;
+
+//       // Update balance amount (supports positive and negative values)
+//       booking.payment.balance.amount += amount;
+
+//       // Add remarks and amount to adminRemarks array
+//       booking.adminRemarks.push({
+//         remark: remarks || "No remark", // Default to "No remark" if empty
+//         amount: amount, // Store the amount
+//         addedAt: new Date(),
+//       });
+//     }
+
+//     // Save the updated booking
+//     await booking.save();
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Balance and admin remarks updated successfully",
+//       data: {
+//         bookingId: booking._id,
+//         updatedBalance: booking.payment.balance.amount,
+//         adminRemarks: booking.adminRemarks,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error updating tour balance:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//       error: error.message,
+//     });
+//   }
+// };
 const updateTourBalance = async (req, res) => {
   try {
     const { bookingId } = req.params; // Remains from params
@@ -1146,16 +1241,20 @@ const updateTourBalance = async (req, res) => {
       });
     }
 
+    // Set isTripCompleted to true
+    booking.isTripCompleted = true;
+
     // Save the updated booking
     await booking.save();
 
     return res.status(200).json({
       success: true,
-      message: "Balance and admin remarks updated successfully",
+      message: "Balance, admin remarks status updated successfully",
       data: {
         bookingId: booking._id,
         updatedBalance: booking.payment.balance.amount,
         adminRemarks: booking.adminRemarks,
+        isTripCompleted: booking.isTripCompleted,
       },
     });
   } catch (error) {
@@ -1164,6 +1263,61 @@ const updateTourBalance = async (req, res) => {
       success: false,
       message: "Internal server error",
       error: error.message,
+    });
+  }
+};
+
+const updateModifyReceipt = async (req, res) => {
+  try {
+    const { bookingId, tourId } = req.body;
+
+    if (!bookingId) {
+      return res.status(400).json({
+        success: false,
+        message: "bookingId is required",
+      });
+    }
+
+    if (!tourId) {
+      return res.status(400).json({
+        success: false,
+        message: "tourId is required",
+      });
+    }
+
+    // Fetch booking
+    const booking = await tourBookingModel.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    // Ensure booking belongs to the selected tour
+    if (booking.tourId.toString() !== tourId) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized to modify this booking",
+      });
+    }
+
+    // Set isTripCompleted to false
+    booking.isTripCompleted = false;
+
+    // Save the updated booking
+    await booking.save({ validateModifiedOnly: true });
+
+    return res.status(200).json({
+      success: true,
+      message: "Trip completion status marked as not completed successfully",
+      booking,
+    });
+  } catch (error) {
+    console.error("updateModifyReceipt error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
     });
   }
 };
@@ -1183,4 +1337,5 @@ export {
   markBalanceReceiptSent,
   viewTourBalance,
   updateTourBalance,
+  updateModifyReceipt,
 };
