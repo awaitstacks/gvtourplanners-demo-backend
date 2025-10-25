@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { v2 as cloudinary } from "cloudinary";
 import tourBookingModel from "../models/tourBookingmodel.js";
+import mongoose from "mongoose"; // Added missing import
 
 const changeTourAvailability = async (req, res) => {
   try {
@@ -1025,6 +1026,147 @@ const markBalanceReceiptSent = async (req, res) => {
     });
   }
 };
+
+const viewTourBalance = async (req, res) => {
+  try {
+    const { bookingId } = req.params; // Using params for GET request
+
+    // Validate input
+    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing booking ID",
+      });
+    }
+
+    // Find the booking by ID, selecting only relevant fields
+    const booking = await tourBookingModel
+      .findById(bookingId)
+      .select("payment.advance payment.balance adminRemarks")
+      .lean();
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Booking balance details retrieved successfully",
+      data: {
+        bookingId,
+        advance: booking.payment.advance,
+        balance: booking.payment.balance,
+        adminRemarks: booking.adminRemarks || [],
+      },
+    });
+  } catch (error) {
+    console.error("Error retrieving tour balance:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+const updateTourBalance = async (req, res) => {
+  try {
+    const { bookingId } = req.params; // Remains from params
+
+    // Check if req.body exists and contains updates
+    if (!req.body || !req.body.updates) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body is missing or does not contain updates",
+      });
+    }
+
+    const { updates } = req.body;
+
+    // Validate input
+    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing booking ID",
+      });
+    }
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Updates must be a non-empty array",
+      });
+    }
+
+    // Validate each update
+    for (const update of updates) {
+      const { remarks, amount } = update;
+
+      // Amount must be a number (can be positive or negative)
+      if (amount === undefined || typeof amount !== "number") {
+        return res.status(400).json({
+          success: false,
+          message: "Each update must include a valid amount",
+        });
+      }
+
+      // Remarks, if provided, must be a non-empty string
+      if (remarks && (typeof remarks !== "string" || remarks.trim() === "")) {
+        return res.status(400).json({
+          success: false,
+          message: "Remarks, if provided, must be a non-empty string",
+        });
+      }
+    }
+
+    // Find the booking by ID
+    const booking = await tourBookingModel.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    // Apply updates
+    for (const update of updates) {
+      const { remarks, amount } = update;
+
+      // Update balance amount (supports positive and negative values)
+      booking.payment.balance.amount += amount;
+
+      // Add remarks and amount to adminRemarks array
+      booking.adminRemarks.push({
+        remark: remarks || "No remark", // Default to "No remark" if empty
+        amount: amount, // Store the amount
+        addedAt: new Date(),
+      });
+    }
+
+    // Save the updated booking
+    await booking.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Balance and admin remarks updated successfully",
+      data: {
+        bookingId: booking._id,
+        updatedBalance: booking.payment.balance.amount,
+        adminRemarks: booking.adminRemarks,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating tour balance:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
 export {
   tourList,
   changeTourAvailability,
@@ -1039,4 +1181,6 @@ export {
   updateTraveller,
   markAdvanceReceiptSent,
   markBalanceReceiptSent,
+  viewTourBalance,
+  updateTourBalance,
 };

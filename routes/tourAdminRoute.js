@@ -6,8 +6,10 @@ import {
   bookingRejectAdmin,
   bookingRelease,
   bookingsAdmin,
+  getCancellationChart,
   loginAdmin,
   tourAdminDashboard,
+  upsertCancellationChart,
 } from "../controllers/tourAdminController.js";
 import authAdmin from "../middlewares/authAdmin.js";
 import { tourUpload } from "../middlewares/multer.js"; // ✅ Correct import (pre-configured fields)
@@ -33,5 +35,11 @@ touradminRouter.post(
 
 touradminRouter.get("/bookings", authAdmin, bookingsAdmin);
 touradminRouter.get("/touradmindashboard", authAdmin, tourAdminDashboard);
+touradminRouter.post(
+  "/touradmincancelrule",
+  authAdmin,
+  upsertCancellationChart
+);
+touradminRouter.get("/touradmingetcancelrule", authAdmin, getCancellationChart);
 
 export default touradminRouter;

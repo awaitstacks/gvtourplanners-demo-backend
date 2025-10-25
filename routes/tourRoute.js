@@ -12,6 +12,8 @@ import {
   tourProfile,
   updateTourProfile,
   updateTraveller,
+  viewTourBalance,
+  updateTourBalance,
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
@@ -35,4 +37,6 @@ tourRouter.put("/mark-balancepaid", authTour, markOfflineBalancePaid);
 tourRouter.put("/update-traveller", authTour, updateTraveller);
 tourRouter.put("/mark-advance-receipt", authTour, markAdvanceReceiptSent);
 tourRouter.put("/mark-balance-receipt", authTour, markBalanceReceiptSent);
+tourRouter.get("/view-tour-balance/:bookingId", authTour, viewTourBalance);
+tourRouter.post("/update-tour-balance/:bookingId", authTour, updateTourBalance);
 export default tourRouter;

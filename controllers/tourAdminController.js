@@ -7,6 +7,7 @@ import jwt from "jsonwebtoken";
 import tourModel from "../models/tourModel.js";
 import userModel from "../models/userModel.js";
 import tourBookingModel from "../models/tourBookingmodel.js";
+import cancelRuleModel from "../models/cancelRuleModel.js";
 
 const addTour = async (req, res) => {
   try {
@@ -779,6 +780,59 @@ const tourAdminDashboard = async (req, res) => {
     });
   }
 };
+const upsertCancellationChart = async (req, res) => {
+  try {
+    const { gv, irctc } = req.body;
+
+    // If you only have one global chart, we upsert by empty filter {}
+    const existing = await cancelRuleModel.findOne();
+
+    let updatedChart;
+    if (existing) {
+      // ✅ Update existing chart
+      existing.gv = gv || existing.gv;
+      existing.irctc = irctc || existing.irctc;
+      updatedChart = await existing.save();
+    } else {
+      // ✅ Create new chart
+      updatedChart = await cancelRuleModel.create({ gv, irctc });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: existing
+        ? "Cancellation chart updated successfully"
+        : "Cancellation chart created successfully",
+      data: updatedChart,
+    });
+  } catch (error) {
+    console.error("Error updating cancellation chart:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update cancellation chart",
+      error: error.message,
+    });
+  }
+};
+
+const getCancellationChart = async (req, res) => {
+  try {
+    const chart = await cancelRuleModel.findOne();
+    if (!chart)
+      return res
+        .status(404)
+        .json({ success: false, message: "No cancellation chart found" });
+
+    res.status(200).json({ success: true, data: chart });
+  } catch (error) {
+    console.error("Error fetching cancellation chart:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch cancellation chart",
+      error: error.message,
+    });
+  }
+};
 
 export {
   addTour,
@@ -789,4 +843,6 @@ export {
   bookingRejectAdmin,
   bookingRelease,
   tourAdminDashboard,
+  upsertCancellationChart,
+  getCancellationChart,
 };
