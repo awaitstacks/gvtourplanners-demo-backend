@@ -129,6 +129,8 @@ const tourBookingSchema = new mongoose.Schema({
   },
 
   bookingDate: { type: Date, default: Date.now },
+  gvCancellationPool: { type: Number, required: false },
+  irctcCancellationPool: { type: Number, required: false },
 
   // Updated field to store admin remarks with amount
   adminRemarks: [

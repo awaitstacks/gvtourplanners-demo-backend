@@ -3,6 +3,8 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { v2 as cloudinary } from "cloudinary";
 import tourBookingModel from "../models/tourBookingmodel.js";
+import cancellationModel from "../models/cancellationModel.js";
+
 import mongoose from "mongoose"; // Added missing import
 
 const changeTourAvailability = async (req, res) => {
@@ -1072,106 +1074,11 @@ const viewTourBalance = async (req, res) => {
   }
 };
 
-// const updateTourBalance = async (req, res) => {
-//   try {
-//     const { bookingId } = req.params; // Remains from params
-
-//     // Check if req.body exists and contains updates
-//     if (!req.body || !req.body.updates) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Request body is missing or does not contain updates",
-//       });
-//     }
-
-//     const { updates } = req.body;
-
-//     // Validate input
-//     if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid or missing booking ID",
-//       });
-//     }
-
-//     if (!Array.isArray(updates) || updates.length === 0) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Updates must be a non-empty array",
-//       });
-//     }
-
-//     // Validate each update
-//     for (const update of updates) {
-//       const { remarks, amount } = update;
-
-//       // Amount must be a number (can be positive or negative)
-//       if (amount === undefined || typeof amount !== "number") {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Each update must include a valid amount",
-//         });
-//       }
-
-//       // Remarks, if provided, must be a non-empty string
-//       if (remarks && (typeof remarks !== "string" || remarks.trim() === "")) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Remarks, if provided, must be a non-empty string",
-//         });
-//       }
-//     }
-
-//     // Find the booking by ID
-//     const booking = await tourBookingModel.findById(bookingId);
-//     if (!booking) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Booking not found",
-//       });
-//     }
-
-//     // Apply updates
-//     for (const update of updates) {
-//       const { remarks, amount } = update;
-
-//       // Update balance amount (supports positive and negative values)
-//       booking.payment.balance.amount += amount;
-
-//       // Add remarks and amount to adminRemarks array
-//       booking.adminRemarks.push({
-//         remark: remarks || "No remark", // Default to "No remark" if empty
-//         amount: amount, // Store the amount
-//         addedAt: new Date(),
-//       });
-//     }
-
-//     // Save the updated booking
-//     await booking.save();
-
-//     return res.status(200).json({
-//       success: true,
-//       message: "Balance and admin remarks updated successfully",
-//       data: {
-//         bookingId: booking._id,
-//         updatedBalance: booking.payment.balance.amount,
-//         adminRemarks: booking.adminRemarks,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Error updating tour balance:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Internal server error",
-//       error: error.message,
-//     });
-//   }
-// };
 const updateTourBalance = async (req, res) => {
   try {
-    const { bookingId } = req.params; // Remains from params
+    const { bookingId } = req.params;
 
-    // Check if req.body exists and contains updates
+    // --- INPUT VALIDATION ---
     if (!req.body || !req.body.updates) {
       return res.status(400).json({
         success: false,
@@ -1181,7 +1088,6 @@ const updateTourBalance = async (req, res) => {
 
     const { updates } = req.body;
 
-    // Validate input
     if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
       return res.status(400).json({
         success: false,
@@ -1196,11 +1102,9 @@ const updateTourBalance = async (req, res) => {
       });
     }
 
-    // Validate each update
     for (const update of updates) {
       const { remarks, amount } = update;
 
-      // Amount must be a number (can be positive or negative)
       if (amount === undefined || typeof amount !== "number") {
         return res.status(400).json({
           success: false,
@@ -1208,7 +1112,6 @@ const updateTourBalance = async (req, res) => {
         });
       }
 
-      // Remarks, if provided, must be a non-empty string
       if (remarks && (typeof remarks !== "string" || remarks.trim() === "")) {
         return res.status(400).json({
           success: false,
@@ -1217,7 +1120,7 @@ const updateTourBalance = async (req, res) => {
       }
     }
 
-    // Find the booking by ID
+    // --- FETCH BOOKING ---
     const booking = await tourBookingModel.findById(bookingId);
     if (!booking) {
       return res.status(404).json({
@@ -1226,30 +1129,79 @@ const updateTourBalance = async (req, res) => {
       });
     }
 
-    // Apply updates
+    // --- NEW: BLOCK IF ANY TRAVELLER HAS APPLIED FOR CANCELLATION ---
+    const hasTravellerAppliedForCancellation = booking.travellers.some(
+      (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === false
+    );
+
+    if (hasTravellerAppliedForCancellation) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "One or more travellers have applied for cancellation. Cannot update balance.",
+      });
+    }
+
+    // --- BLOCK 1: Both advance & balance already paid ---
+    const advancePaid = booking.payment?.advance?.paid === true;
+    const balancePaid = booking.payment?.balance?.paid === true;
+
+    if (advancePaid && balancePaid) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot update: Advance and balance are both already paid",
+      });
+    }
+
+    // --- BLOCK 2: All travellers cancelled by admin ---
+    const allTravellersCancelledByAdmin = booking.travellers.every(
+      (t) => t.cancelled?.byAdmin === true
+    );
+
+    if (allTravellersCancelledByAdmin) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Cannot update: All travellers are cancelled by admin. Booking is closed.",
+      });
+    }
+
+    // --- BLOCK 3: Prevent negative balance ---
+    const currentBalance = booking.payment?.balance?.amount || 0;
+    const totalDeduction = updates
+      .filter((u) => u.amount < 0)
+      .reduce((sum, u) => sum + Math.abs(u.amount), 0);
+
+    if (currentBalance - totalDeduction < 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot apply updates: Balance would become negative. Current: ₹${currentBalance}, Requested deduction: ₹${totalDeduction}`,
+      });
+    }
+
+    // --- APPLY UPDATES SAFELY ---
     for (const update of updates) {
       const { remarks, amount } = update;
 
-      // Update balance amount (supports positive and negative values)
+      // Update balance
       booking.payment.balance.amount += amount;
 
-      // Add remarks and amount to adminRemarks array
+      // Add to admin remarks
       booking.adminRemarks.push({
-        remark: remarks || "No remark", // Default to "No remark" if empty
-        amount: amount, // Store the amount
+        remark: remarks?.trim() || "No remark",
+        amount,
         addedAt: new Date(),
       });
     }
 
-    // Set isTripCompleted to true
+    // Mark trip as completed
     booking.isTripCompleted = true;
 
-    // Save the updated booking
     await booking.save();
 
     return res.status(200).json({
       success: true,
-      message: "Balance, admin remarks status updated successfully",
+      message: "Balance and admin remarks updated successfully",
       data: {
         bookingId: booking._id,
         updatedBalance: booking.payment.balance.amount,
@@ -1321,6 +1273,89 @@ const updateModifyReceipt = async (req, res) => {
     });
   }
 };
+
+// controllers/tourController.js
+const viewBooking = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const tToken = req.header("ttoken");
+
+    if (!tToken) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Not Authorized." });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(tToken, process.env.JWT_SECRET);
+    } catch (error) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid token." });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({ success: false, message: "Invalid ID" });
+    }
+
+    const booking = await tourBookingModel
+      .findById(bookingId)
+      .populate("userId", "name email mobile")
+      .lean();
+
+    if (!booking)
+      return res.status(404).json({ success: false, message: "Not found" });
+
+    const tour = await tourModel.findById(booking.tourId).lean();
+    if (!tour)
+      return res
+        .status(404)
+        .json({ success: false, message: "Tour not found" });
+
+    booking.tourFull = tour;
+
+    res.json({ success: true, data: booking });
+  } catch (error) {
+    console.error("viewBooking error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+const getCancellationsByBooking = async (req, res) => {
+  const { bookingId } = req.params;
+  const { limit = 20 } = req.query;
+
+  // Validate bookingId
+  if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Invalid bookingId" });
+  }
+
+  const numericLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 200);
+
+  try {
+    // find cancellations for this booking
+    const cancellations = await cancellationModel
+      .find({ bookingId: bookingId })
+      .sort({ createdAt: -1 })
+      .limit(numericLimit)
+      .lean();
+
+    // return as array
+    return res.status(200).json({
+      success: true,
+      count: cancellations.length,
+      results: cancellations,
+    });
+  } catch (err) {
+    console.error("getCancellationsByBooking error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching cancellations",
+    });
+  }
+};
 export {
   tourList,
   changeTourAvailability,
@@ -1338,4 +1373,6 @@ export {
   viewTourBalance,
   updateTourBalance,
   updateModifyReceipt,
+  viewBooking,
+  getCancellationsByBooking,
 };

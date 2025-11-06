@@ -8,6 +8,7 @@ import tourModel from "../models/tourModel.js";
 import userModel from "../models/userModel.js";
 import tourBookingModel from "../models/tourBookingmodel.js";
 import cancelRuleModel from "../models/cancelRuleModel.js";
+import cancellationModel from "../models/cancellationModel.js";
 
 const addTour = async (req, res) => {
   try {
@@ -780,60 +781,433 @@ const tourAdminDashboard = async (req, res) => {
     });
   }
 };
+
+// GET (with auto-create default)
+const getCancellationChart = async (req, res) => {
+  try {
+    let chart = await cancelRuleModel.findOne();
+
+    if (!chart) {
+      chart = await cancelRuleModel.create({
+        gv: {
+          advancePaid: {
+            tiers: [{ fromDays: 30, toDays: 15, percentage: 50 }],
+          },
+          fullyPaid: { tiers: [{ fromDays: 30, toDays: 15, percentage: 100 }] },
+        },
+        irctc: [
+          { classType: "SL", noOfDays: 7, fixedAmount: 60, percentage: 50 },
+        ],
+      });
+    }
+
+    res.status(200).json({ success: true, data: chart });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch chart" });
+  }
+};
+
+// UPSERT
 const upsertCancellationChart = async (req, res) => {
   try {
     const { gv, irctc } = req.body;
+    let chart = await cancelRuleModel.findOne();
 
-    // If you only have one global chart, we upsert by empty filter {}
-    const existing = await cancelRuleModel.findOne();
-
-    let updatedChart;
-    if (existing) {
-      // ✅ Update existing chart
-      existing.gv = gv || existing.gv;
-      existing.irctc = irctc || existing.irctc;
-      updatedChart = await existing.save();
+    if (chart) {
+      chart.gv = gv ?? chart.gv;
+      chart.irctc = irctc ?? chart.irctc;
+      chart = await chart.save();
     } else {
-      // ✅ Create new chart
-      updatedChart = await cancelRuleModel.create({ gv, irctc });
+      chart = await cancelRuleModel.create({ gv, irctc });
     }
 
     res.status(200).json({
       success: true,
-      message: existing
-        ? "Cancellation chart updated successfully"
-        : "Cancellation chart created successfully",
-      data: updatedChart,
+      message: "Updated",
+      data: chart,
     });
   } catch (error) {
-    console.error("Error updating cancellation chart:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to update cancellation chart",
-      error: error.message,
-    });
+    console.error("Upsert error:", error);
+    res.status(500).json({ success: false, message: "Failed to update" });
   }
 };
 
-const getCancellationChart = async (req, res) => {
+/**
+ * GET /touradmingetcancelrule
+ * Returns pending cancellation requests:
+ *   - raisedBy = true
+ *   - approvedBy = false
+ *   - at least one traveller cancelled by the traveller (not by admin)
+ */
+const getCancellations = async (req, res) => {
   try {
-    const chart = await cancelRuleModel.findOne();
-    if (!chart)
-      return res
-        .status(404)
-        .json({ success: false, message: "No cancellation chart found" });
+    // 1. Find cancellation docs that are RAISED but NOT YET APPROVED
+    //    (approvedBy must be explicitly false or missing)
+    const pendingCancellations = await cancellationModel
+      .find({
+        raisedBy: true,
+        $or: [{ approvedBy: { $exists: false } }, { approvedBy: false }],
+      })
+      .select("-__v")
+      .lean();
 
-    res.status(200).json({ success: true, data: chart });
-  } catch (error) {
-    console.error("Error fetching cancellation chart:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch cancellation chart",
-      error: error.message,
-    });
+    if (!pendingCancellations.length) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // 2. Extract booking IDs
+    const bookingIds = [
+      ...new Set(pendingCancellations.map((c) => c.bookingId).filter(Boolean)),
+    ];
+
+    // 3. Fetch bookings + filter travellers on the server side
+    const bookings = await tourBookingModel
+      .find({ _id: { $in: bookingIds } })
+      .select("travellers cancelled")
+      .lean();
+
+    // Helper: does the booking contain a traveller cancelled **by traveller only** OR **by admin only**?
+    const hasValidTravellerCancellation = (booking) => {
+      return booking.travellers.some(
+        (t) =>
+          (t.cancelled?.byTraveller === true &&
+            t.cancelled?.byAdmin === false) ||
+          (t.cancelled?.byAdmin === true && t.cancelled?.byTraveller === false)
+      );
+    };
+
+    const validBookingIds = bookings
+      .filter(hasValidTravellerCancellation)
+      .map((b) => b._id.toString());
+
+    // 4. Keep only cancellation docs whose booking passed the traveller check
+    const result = pendingCancellations.filter(
+      (c) => c.bookingId && validBookingIds.includes(c.bookingId.toString())
+    );
+
+    // 5. OPTIONAL: Populate booking & traveller data for the front-end
+    const enriched = await Promise.all(
+      result.map(async (c) => {
+        const booking = await tourBookingModel
+          .findById(c.bookingId)
+          .select(
+            "userId tourId travellers contact bookingDate payment adminRemarks"
+          )
+          .populate({
+            path: "travellers",
+            match: {
+              $or: [
+                { "cancelled.byTraveller": true, "cancelled.byAdmin": false },
+              ],
+            },
+            select: "title firstName lastName age gender sharingType cancelled",
+          })
+          .lean();
+
+        return { ...c, booking };
+      })
+    );
+
+    res.json({ success: true, data: enriched });
+  } catch (err) {
+    console.error("getCancellations error:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
+/**
+ * POST /touradmin/approvecancellation
+ * Body: { bookingId, travellerIds: [...] }
+ *
+ * 1. Updates tourBooking.payment.balance.amount = cancellation.updatedBalance
+ * 2. Sets cancelled.byAdmin = true for ALL given travellerIds
+ * 3. Sets cancellation.raisedBy = false, approvedBy = true
+ */
+const approveCancellation = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
+  try {
+    const { bookingId, travellerIds } = req.body;
+
+    // === VALIDATION ===
+    if (
+      !bookingId ||
+      !Array.isArray(travellerIds) ||
+      travellerIds.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "bookingId and travellerIds array are required",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid bookingId" });
+    }
+
+    const invalidIds = travellerIds.filter(
+      (id) => !mongoose.Types.ObjectId.isValid(id)
+    );
+    if (invalidIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid travellerId(s)",
+        invalidIds,
+      });
+    }
+
+    // === FETCH BOOKING WITH TRAVELLERS & CURRENT POOLS ===
+    const booking = await tourBookingModel
+      .findById(bookingId)
+      .select("travellers gvCancellationPool irctcCancellationPool")
+      .session(session)
+      .lean();
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    // === VALIDATE TRAVELLERS: Must be cancelled by traveller, not by admin ===
+    const validTravellerIds = booking.travellers
+      .filter(
+        (t) =>
+          t.cancelled?.byTraveller === true && t.cancelled?.byAdmin !== true
+      )
+      .map((t) => t._id.toString());
+
+    const requestedIds = travellerIds.map((id) => id.toString());
+    const notMatching = requestedIds.filter(
+      (id) => !validTravellerIds.includes(id)
+    );
+
+    if (notMatching.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Cancelled traveller(s) not matching with booking",
+        mismatchedIds: notMatching,
+      });
+    }
+
+    // === FIND CANCELLATION REQUEST ===
+    const cancellation = await cancellationModel
+      .findOne({
+        bookingId,
+        travellerIds: {
+          $all: travellerIds.map((id) => new mongoose.Types.ObjectId(id)),
+        },
+      })
+      .session(session);
+
+    if (!cancellation) {
+      return res.status(404).json({
+        success: false,
+        message: "Cancellation request not found",
+      });
+    }
+
+    if (cancellation.approvedBy && cancellation.raisedBy) {
+      return res.status(400).json({
+        success: false,
+        message: "Cancellation already approved",
+      });
+    }
+
+    // === CALCULATE POOL ADDITIONS ===
+    const gvAdd =
+      (cancellation.gvCancellationAmount || 0) +
+      (cancellation.remarksAmount || 0);
+    const irctcAdd = cancellation.irctcCancellationAmount || 0;
+
+    const newGvPool = (cancellation.gvCancellationPool || 0) + gvAdd;
+    const newIrctcPool = (cancellation.irctcCancellationPool || 0) + irctcAdd;
+
+    // === ALSO UPDATE BOOKING POOLS ===
+    const bookingNewGvPool = (booking.gvCancellationPool || 0) + gvAdd;
+    const bookingNewIrctcPool = (booking.irctcCancellationPool || 0) + irctcAdd;
+
+    // === BUILD $set AND arrayFilters FOR BOOKING ===
+    const setObj = {
+      "payment.balance.amount": cancellation.updatedBalance,
+      gvCancellationPool: bookingNewGvPool,
+      irctcCancellationPool: bookingNewIrctcPool,
+    };
+    const arrayFilters = [];
+
+    travellerIds.forEach((id, idx) => {
+      const filterName = `trav${idx}`;
+      setObj[`travellers.$[${filterName}].cancelled.byAdmin`] = true;
+      setObj[`travellers.$[${filterName}].cancelled.cancelledAt`] = new Date();
+      arrayFilters.push({
+        [`${filterName}._id`]: new mongoose.Types.ObjectId(id),
+      });
+    });
+
+    // === UPDATE BOOKING (with pools) ===
+    const updatedBooking = await tourBookingModel.findByIdAndUpdate(
+      bookingId,
+      { $set: setObj },
+      {
+        arrayFilters,
+        new: true,
+        session,
+      }
+    );
+
+    if (!updatedBooking) throw new Error("Failed to update booking");
+
+    // === UPDATE CANCELLATION: Approve + Update Pools ===
+    await cancellationModel.findByIdAndUpdate(
+      cancellation._id,
+      {
+        raisedBy: false,
+        approvedBy: true,
+        gvCancellationPool: newGvPool,
+        irctcCancellationPool: newIrctcPool,
+      },
+      { session }
+    );
+
+    await session.commitTransaction();
+
+    return res.json({
+      success: true,
+      message: "Cancellation approved successfully",
+      data: {
+        bookingId,
+        travellerIds,
+        newBalanceAmount: cancellation.updatedBalance,
+        updatedPools: {
+          gvCancellationPool: bookingNewGvPool,
+          irctcCancellationPool: bookingNewIrctcPool,
+        },
+      },
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    console.error("approveCancellation error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    session.endSession();
+  }
+};
+/**
+ * POST /touradmin/rejectcancellation
+ * Body: { bookingId, travellerIds: [...], cancellationId }
+ *
+ * 1. Sets cancellation.raisedBy = false
+ * 2. Sets travellers.cancelled.byTraveller = false for given travellerIds
+ */
+const rejectCancellation = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { bookingId, travellerIds, cancellationId } = req.body;
+
+    // === VALIDATION ===
+    if (
+      !bookingId ||
+      !cancellationId ||
+      !Array.isArray(travellerIds) ||
+      travellerIds.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "bookingId, cancellationId, and travellerIds array are required",
+      });
+    }
+
+    if (
+      !mongoose.Types.ObjectId.isValid(bookingId) ||
+      !mongoose.Types.ObjectId.isValid(cancellationId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid bookingId or cancellationId",
+      });
+    }
+
+    const invalidTravellerIds = travellerIds.filter(
+      (id) => !mongoose.Types.ObjectId.isValid(id)
+    );
+    if (invalidTravellerIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid travellerId(s)",
+        invalidIds: invalidTravellerIds,
+      });
+    }
+
+    // === FIND CANCELLATION DOCUMENT ===
+    const cancellation = await cancellationModel
+      .findOne({
+        _id: cancellationId,
+        bookingId,
+        raisedBy: true,
+      })
+      .session(session);
+
+    if (!cancellation) {
+      return res.status(404).json({
+        success: false,
+        message: "Cancellation request not found or already processed",
+      });
+    }
+
+    // Ensure all requested travellerIds are part of this cancellation
+    const cancellationTravellerIds = cancellation.travellerIds.map((id) =>
+      id.toString()
+    );
+    const missing = travellerIds.filter(
+      (id) => !cancellationTravellerIds.includes(id.toString())
+    );
+    if (missing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Some travellerIds do not belong to this cancellation",
+        missing,
+      });
+    }
+
+    // === ONLY UPDATE CANCELLATION MODEL ===
+    await cancellationModel.findByIdAndUpdate(
+      cancellationId,
+      {
+        raisedBy: false,
+        approvedBy: false,
+        rejectedAt: new Date(), // optional: for audit
+        // DO NOT touch: approvedBy, booking, travellers
+      },
+      { session }
+    );
+
+    await session.commitTransaction();
+
+    return res.json({
+      success: true,
+      message: "Cancellation request rejected successfully",
+      data: {
+        bookingId,
+        travellerIds,
+        cancellationId,
+        rejectedAt: new Date(),
+      },
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    console.error("rejectCancellation error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    session.endSession();
+  }
+};
 export {
   addTour,
   loginAdmin,
@@ -845,4 +1219,7 @@ export {
   tourAdminDashboard,
   upsertCancellationChart,
   getCancellationChart,
+  getCancellations,
+  approveCancellation,
+  rejectCancellation,
 };

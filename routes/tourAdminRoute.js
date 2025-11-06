@@ -2,12 +2,15 @@ import express from "express";
 import {
   addTour,
   allTours,
+  approveCancellation,
   bookingCancelAdmin,
   bookingRejectAdmin,
   bookingRelease,
   bookingsAdmin,
   getCancellationChart,
+  getCancellations,
   loginAdmin,
+  rejectCancellation,
   tourAdminDashboard,
   upsertCancellationChart,
 } from "../controllers/tourAdminController.js";
@@ -26,7 +29,6 @@ touradminRouter.post("/all-tours", authAdmin, allTours);
 touradminRouter.post("/cancel-bookingadmin", authAdmin, bookingCancelAdmin);
 touradminRouter.post("/reject-bookingadmin", authAdmin, bookingRejectAdmin);
 touradminRouter.post("/release-bookingadmin", authAdmin, bookingRelease);
-
 touradminRouter.post(
   "/change-touravailablity",
   authAdmin,
@@ -41,5 +43,7 @@ touradminRouter.post(
   upsertCancellationChart
 );
 touradminRouter.get("/touradmingetcancelrule", authAdmin, getCancellationChart);
-
+touradminRouter.get("/touradmingetcancellations", authAdmin, getCancellations);
+touradminRouter.post("/approvecancellation", authAdmin, approveCancellation);
+touradminRouter.post("/rejectcancellation", authAdmin, rejectCancellation);
 export default touradminRouter;
