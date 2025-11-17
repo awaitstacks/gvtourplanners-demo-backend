@@ -9,6 +9,7 @@ import userModel from "../models/userModel.js";
 import tourBookingModel from "../models/tourBookingmodel.js";
 import cancelRuleModel from "../models/cancelRuleModel.js";
 import cancellationModel from "../models/cancellationModel.js";
+import manageBookingModel from "../models/manageBookingModel.js";
 
 const addTour = async (req, res) => {
   try {
@@ -1208,7 +1209,279 @@ const rejectCancellation = async (req, res) => {
     session.endSession();
   }
 };
+const addMissingFieldsToAllBookings = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // 1. Count total bookings (for response)
+    const totalBookings = await tourBookingModel
+      .countDocuments()
+      .session(session);
+
+    // 2. Update ALL documents: add missing fields
+    const result = await tourBookingModel.updateMany(
+      {
+        $or: [
+          { manageBooking: { $exists: false } },
+          { dummyField: { $exists: false } },
+        ],
+      },
+      {
+        $set: {
+          manageBooking: false,
+          dummyField: {},
+        },
+      },
+      { session }
+    );
+
+    await session.commitTransaction();
+
+    res.status(200).json({
+      success: true,
+      message: "Missing fields added to all bookings",
+      data: {
+        totalBookings,
+        modifiedCount: result.modifiedCount,
+        matchedCount: result.matchedCount,
+        fieldsAdded: ["manageBooking", "dummyField"],
+      },
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("addMissingFieldsToAllBookings error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update bookings",
+      error: error.message,
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+const getPendingApprovals = async (req, res) => {
+  try {
+    const pendingBookings = await manageBookingModel
+      .find({
+        manageBooking: true,
+        raisedBy: true,
+      })
+      .populate({
+        path: "userId",
+        select: "name email mobile",
+      })
+      .populate({
+        path: "tourId",
+        select: "title destination startDate endDate thumbnail",
+      })
+      .populate({
+        path: "bookingId",
+        select:
+          "travellers contact bookingType payment receipts bookingDate gvCancellationPool irctcCancellationPool adminRemarks",
+        populate: {
+          path: "tourId",
+          select: "title",
+        },
+      })
+      .sort({ bookingDate: -1 })
+      .select("-__v")
+      .lean();
+
+    // Ensure travellers in original booking also have _id
+    pendingBookings.forEach((mb) => {
+      if (mb.bookingId?.travellers) {
+        mb.bookingId.travellers = mb.bookingId.travellers.map((t) => ({
+          ...t,
+          _id: t._id || new mongoose.Types.ObjectId(), // fallback (should never happen)
+        }));
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message:
+        pendingBookings.length > 0
+          ? "Pending approvals fetched successfully."
+          : "No pending approvals found.",
+      count: pendingBookings.length,
+      data: pendingBookings,
+    });
+  } catch (error) {
+    console.error("Error in getPendingApprovals:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch pending approvals.",
+      error: error.message,
+    });
+  }
+};
+
+const approveBookingUpdate = async (req, res) => {
+  try {
+    const { bookingId } = req.body;
+
+    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid bookingId is required",
+      });
+    }
+
+    // Step 1: Find manageBooking request
+    const manageBooking = await manageBookingModel
+      .findOne({ bookingId, approvedBy: false, raisedBy: true })
+      .lean();
+
+    if (!manageBooking) {
+      return res.status(404).json({
+        success: false,
+        message: "No pending update request found for this booking",
+      });
+    }
+
+    if (manageBooking.approvedBy) {
+      return res.status(400).json({
+        success: false,
+        message: "This update has already been approved",
+      });
+    }
+
+    // Validate amounts
+    if (
+      manageBooking.updatedAdvance === undefined ||
+      manageBooking.updatedBalance === undefined
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "updatedAdvance and updatedBalance are required",
+      });
+    }
+
+    // Step 2: Prepare update for tourBooking
+    const updateData = {
+      $set: {
+        "payment.advance.amount": manageBooking.updatedAdvance,
+        "payment.balance.amount": manageBooking.updatedBalance,
+        travellers: manageBooking.travellers, // ← includes _id
+        contact: manageBooking.contact,
+        billingAddress: manageBooking.billingAddress,
+        adminRemarks: manageBooking.adminRemarks || [],
+        manageBooking: false, // reset flag
+      },
+    };
+
+    // Step 3: Apply update
+    const updatedTourBooking = await tourBookingModel.findByIdAndUpdate(
+      bookingId,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedTourBooking) {
+      return res.status(404).json({
+        success: false,
+        message: "Original booking not found",
+      });
+    }
+
+    // Step 4: Mark manageBooking as approved
+    await manageBookingModel.findOneAndUpdate(
+      { _id: manageBooking._id },
+      { $set: { approvedBy: true, raisedBy: false, manageBooking: false } }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Booking update approved and applied successfully",
+      data: {
+        updatedBooking: updatedTourBooking,
+        approvedRequestId: manageBooking._id,
+      },
+    });
+  } catch (error) {
+    console.error("Error in approveBookingUpdate:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+const rejectBookingUpdate = async (req, res) => {
+  try {
+    const { bookingId, remark } = req.body; // remark is optional
+
+    // --- 1. Validate bookingId ---
+    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid bookingId is required",
+      });
+    }
+
+    // --- 2. Find the pending manageBooking request ---
+    const manageBooking = await manageBookingModel
+      .findOne({
+        bookingId,
+        approvedBy: false,
+        manageBooking: true,
+      })
+      .lean();
+
+    if (!manageBooking) {
+      return res.status(404).json({
+        success: false,
+        message: "No pending update request found for this booking",
+      });
+    }
+
+    // --- 3. Prepare update: reject the request ---
+    const updatePayload = {
+      $set: {
+        manageBooking: false,
+        raisedBy: false,
+        // Optional: mark as rejected (you can add a field if needed)
+      },
+      $push: {
+        adminRemarks: {
+          remark: remark || "Update request rejected by admin",
+          amount: 0,
+          addedAt: new Date(),
+        },
+      },
+    };
+
+    // --- 4. Apply the update ---
+    const updated = await manageBookingModel.findByIdAndUpdate(
+      manageBooking._id,
+      updatePayload,
+      { new: true, runValidators: true }
+    );
+
+    // --- 5. Success response ---
+    return res.status(200).json({
+      success: true,
+      message: "Booking update request rejected successfully",
+      data: {
+        rejectedRequestId: updated._id,
+        bookingId: updated.bookingId,
+      },
+    });
+  } catch (error) {
+    console.error("rejectBookingUpdate error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
 export {
+  addMissingFieldsToAllBookings,
   addTour,
   loginAdmin,
   allTours,
@@ -1222,4 +1495,7 @@ export {
   getCancellations,
   approveCancellation,
   rejectCancellation,
+  getPendingApprovals,
+  approveBookingUpdate,
+  rejectBookingUpdate,
 };

@@ -1,14 +1,21 @@
 import mongoose from "mongoose";
 
-const tourBookingSchema = new mongoose.Schema({
+const manageBookingSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "user", required: true },
   tourId: { type: mongoose.Schema.Types.ObjectId, ref: "tour", required: true },
+  bookingId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "tourBooking",
+    required: true,
+  },
 
   userData: { type: Object, required: true },
   tourData: { type: Object, required: true },
 
+  // === TRAVELLERS (with explicit _id) ===
   travellers: [
     {
+      _id: { type: mongoose.Schema.Types.ObjectId, auto: true }, // ← Explicit
       title: { type: String, required: true },
       firstName: { type: String, required: true },
       lastName: { type: String, required: true },
@@ -29,10 +36,7 @@ const tourBookingSchema = new mongoose.Schema({
         default: "main",
         required: true,
       },
-      variantPackageIndex: {
-        type: Number,
-        default: null,
-      },
+      variantPackageIndex: { type: Number, default: null },
       selectedAddon: {
         name: { type: String },
         price: { type: Number },
@@ -111,12 +115,14 @@ const tourBookingSchema = new mongoose.Schema({
       paidAt: { type: Date },
     },
   },
+
   receipts: {
     advanceReceiptSent: { type: Boolean, default: false },
     advanceReceiptSentAt: { type: Date },
     balanceReceiptSent: { type: Boolean, default: false },
     balanceReceiptSentAt: { type: Date },
   },
+
   isTripCompleted: { type: Boolean, default: false },
   isBookingCompleted: { type: Boolean, default: false },
 
@@ -129,23 +135,32 @@ const tourBookingSchema = new mongoose.Schema({
   },
 
   bookingDate: { type: Date, default: Date.now },
-  gvCancellationPool: { type: Number, required: false },
-  irctcCancellationPool: { type: Number, required: false },
+  gvCancellationPool: { type: Number },
+  irctcCancellationPool: { type: Number },
   manageBooking: { type: Boolean, default: false },
-  dummyField: {},
 
-  // Updated field to store admin remarks with amount
   adminRemarks: [
     {
       remark: { type: String },
-      amount: { type: Number, default: 0 }, // Added amount field
+      amount: { type: Number, default: 0 },
       addedAt: { type: Date, default: Date.now },
     },
   ],
+
+  approvedBy: { type: Boolean, default: false },
+  raisedBy: { type: Boolean, default: false },
+
+  updatableAdvance: { type: Number },
+  updatedAdvance: { type: Number },
+  updatableBalance: { type: Number },
+  updatedBalance: { type: Number },
 });
 
-const tourBookingModel =
-  mongoose.models.tourBooking ||
-  mongoose.model("tourBooking", tourBookingSchema);
+// Index for performance
+manageBookingSchema.index({ bookingId: 1, approvedBy: 1 });
 
-export default tourBookingModel;
+const manageBookingModel =
+  mongoose.models.manageBooking ||
+  mongoose.model("manageBooking", manageBookingSchema);
+
+export default manageBookingModel;

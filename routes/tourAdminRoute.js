@@ -1,7 +1,9 @@
 import express from "express";
 import {
+  addMissingFieldsToAllBookings,
   addTour,
   allTours,
+  approveBookingUpdate,
   approveCancellation,
   bookingCancelAdmin,
   bookingRejectAdmin,
@@ -9,7 +11,9 @@ import {
   bookingsAdmin,
   getCancellationChart,
   getCancellations,
+  getPendingApprovals,
   loginAdmin,
+  rejectBookingUpdate,
   rejectCancellation,
   tourAdminDashboard,
   upsertCancellationChart,
@@ -46,4 +50,14 @@ touradminRouter.get("/touradmingetcancelrule", authAdmin, getCancellationChart);
 touradminRouter.get("/touradmingetcancellations", authAdmin, getCancellations);
 touradminRouter.post("/approvecancellation", authAdmin, approveCancellation);
 touradminRouter.post("/rejectcancellation", authAdmin, rejectCancellation);
+touradminRouter.post("/approvebookingupdate", authAdmin, approveBookingUpdate);
+touradminRouter.post("/rejectbookingupdate", authAdmin, rejectBookingUpdate);
+
+//Crictical
+touradminRouter.post(
+  "/add-missing-fields",
+  authAdmin,
+  addMissingFieldsToAllBookings
+);
+touradminRouter.get("/pending-approvals", authAdmin, getPendingApprovals);
 export default touradminRouter;

@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { v2 as cloudinary } from "cloudinary";
 import tourBookingModel from "../models/tourBookingmodel.js";
 import cancellationModel from "../models/cancellationModel.js";
+import manageBookingModel from "../models/manageBookingModel.js";
 
 import mongoose from "mongoose"; // Added missing import
 
@@ -1356,6 +1357,590 @@ const getCancellationsByBooking = async (req, res) => {
     });
   }
 };
+
+// const updateBookingBalance = async (req, res) => {
+//   try {
+//     const { bookingId } = req.params;
+//     const { updates = {} } = req.body;
+
+//     // ---- 1. Validate ID -------------------------------------------------
+//     if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+//       return res
+//         .status(400)
+//         .json({ success: false, message: "Invalid bookingId" });
+//     }
+
+//     // ---- 2. Load original booking + populate tour + travellers ----------
+//     const original = await tourBookingModel
+//       .findById(bookingId)
+//       .populate("tourId")
+//       .populate({ path: "travellers" }) // ensures _id exists
+//       .lean();
+
+//     if (!original) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Original booking not found" });
+//     }
+
+//     const tour = original.tourId;
+
+//     // ---- Payment Status -------------------------------------------------
+//     const advancePaid = original.payment?.advance?.paid ?? false;
+//     const balancePaid = original.payment?.balance?.paid ?? false;
+
+//     // ---- 3. Merge UI updates --------------------------------------------
+//     const merged = {
+//       ...original,
+//       ...updates,
+//       travellers: original.travellers.map((origT, i) => ({
+//         ...origT,
+//         ...(updates.travellers?.[i] || {}),
+//       })),
+//       contact: { ...original.contact, ...(updates.contact || {}) },
+//       billingAddress: {
+//         ...original.billingAddress,
+//         ...(updates.billingAddress || {}),
+//       },
+//     };
+
+//     // ---- Helper: Get package (main or variant) -------------------------
+//     const getPackage = (traveller) => {
+//       return traveller.packageType === "main"
+//         ? tour
+//         : tour.variantPackage?.[traveller.variantPackageIndex] ?? tour;
+//     };
+
+//     // ---- Helper: Get advance price for one traveller -------------------
+//     const getTravellerAdvance = (traveller) => {
+//       const pkg = getPackage(traveller);
+//       if (!pkg || !pkg.advanceAmount) return 0;
+
+//       const isChild =
+//         traveller.sharingType === "withBerth" ||
+//         traveller.sharingType === "withoutBerth";
+
+//       return isChild ? pkg.advanceAmount.child : pkg.advanceAmount.adult;
+//     };
+
+//     // ---- Helper: Get balance price for one traveller -------------------
+//     const getTravellerBalance = (traveller) => {
+//       const pkg = getPackage(traveller);
+//       if (!pkg) return 0;
+
+//       switch (traveller.sharingType) {
+//         case "double":
+//           return pkg.balanceDouble ?? 0;
+//         case "triple":
+//           return pkg.balanceTriple ?? 0;
+//         case "withBerth":
+//           return pkg.balanceChildWithBerth ?? 0;
+//         case "withoutBerth":
+//           return pkg.balanceChildWithoutBerth ?? 0;
+//         default:
+//           return 0;
+//       }
+//     };
+
+//     // ---- Helper: Get addon price ---------------------------------------
+//     const getAddonPrice = (traveller) => {
+//       return traveller.selectedAddon?.price ?? 0;
+//     };
+
+//     // ---- Active Travellers Only ----------------------------------------
+//     const activeTravellers = merged.travellers.filter(
+//       (t) => !t.cancelled?.byAdmin && !t.cancelled?.byTraveller
+//     );
+
+//     let updatableAdvance = 0,
+//       updatedAdvance = 0,
+//       updatableBalance = 0,
+//       updatedBalance = 0;
+
+//     // ====================================================================
+//     // CASE 1: Advance paid, balance not paid → PRESERVE ADVANCE AMOUNT
+//     // ====================================================================
+//     if (advancePaid && !balancePaid) {
+//       // PRESERVE ORIGINAL ADVANCE AMOUNT (CRITICAL FIX)
+//       updatableAdvance = merged.payment?.advance?.amount || 0;
+//       updatedAdvance = updatableAdvance;
+
+//       const getTravellerPrice = (traveller) => {
+//         const pkg = getPackage(traveller);
+//         if (!pkg) return 0;
+
+//         let base = 0;
+//         switch (traveller.sharingType) {
+//           case "double":
+//             base = pkg.price?.doubleSharing ?? 0;
+//             break;
+//           case "triple":
+//             base = pkg.price?.tripleSharing ?? 0;
+//             break;
+//           case "withBerth":
+//             base = pkg.price?.childWithBerth ?? 0;
+//             break;
+//           case "withoutBerth":
+//             base = pkg.price?.childWithoutBerth ?? 0;
+//             break;
+//           default:
+//             base = pkg.price?.doubleSharing ?? 0;
+//         }
+//         const addon = getAddonPrice(traveller);
+//         return base + addon;
+//       };
+
+//       const A = activeTravellers.reduce(
+//         (sum, t) => sum + getTravellerPrice(t),
+//         0
+//       );
+
+//       const C =
+//         (merged.gvCancellationPool || 0) + (merged.irctcCancellationPool || 0);
+
+//       const D = (merged.adminRemarks || [])
+//         .filter((r) => (r.amount || 0) > 0)
+//         .reduce((sum, r) => sum + r.amount, 0);
+
+//       updatableBalance = A + C + D;
+
+//       const advancePaidAmount = merged.payment?.advance?.amount || 0;
+
+//       const negativeRemarksTotal = (merged.adminRemarks || [])
+//         .filter((r) => (r.amount || 0) < 0)
+//         .reduce((sum, r) => sum + Math.abs(r.amount), 0);
+
+//       updatedBalance =
+//         updatableBalance - advancePaidAmount - negativeRemarksTotal;
+//     }
+//     // ====================================================================
+//     // CASE 2: Both advance & balance unpaid → New Advance + Balance Logic
+//     // ====================================================================
+//     else if (!advancePaid && !balancePaid) {
+//       // A = sum of advance per traveller
+//       const A = activeTravellers.reduce(
+//         (sum, t) => sum + getTravellerAdvance(t),
+//         0
+//       );
+
+//       // B = sum of addons
+//       const B = activeTravellers.reduce((sum, t) => sum + getAddonPrice(t), 0);
+
+//       updatableAdvance = A + B;
+//       updatedAdvance = A + B; // nothing paid yet
+
+//       // C = sum of balance per traveller
+//       const C = activeTravellers.reduce(
+//         (sum, t) => sum + getTravellerBalance(t),
+//         0
+//       );
+
+//       updatableBalance = C;
+//       updatedBalance = C;
+//     }
+//     // ====================================================================
+//     // INVALID STATE: balance paid but advance not? (should not happen)
+//     // ====================================================================
+//     else {
+//       return res.status(400).json({
+//         success: false,
+//         message:
+//           "Invalid payment state: balance cannot be paid before advance.",
+//       });
+//     }
+
+//     // ---- 8. Build manageBooking document --------------------------------
+//     const manageDoc = {
+//       userId: merged.userId,
+//       tourId: tour._id,
+//       bookingId,
+//       userData: merged.userData,
+//       tourData: merged.tourData,
+
+//       travellers: merged.travellers,
+//       billingAddress: merged.billingAddress,
+//       contact: merged.contact,
+//       bookingType: merged.bookingType,
+//       payment: merged.payment,
+//       receipts: merged.receipts,
+//       isTripCompleted: merged.isTripCompleted,
+//       isBookingCompleted: merged.isBookingCompleted,
+//       cancelled: merged.cancelled,
+//       bookingDate: merged.bookingDate,
+//       gvCancellationPool: merged.gvCancellationPool,
+//       irctcCancellationPool: merged.irctcCancellationPool,
+//       manageBooking: true,
+//       adminRemarks: merged.adminRemarks || [],
+
+//       approvedBy: false,
+//       raisedBy: true,
+
+//       // Store both advance and balance fields
+//       updatableAdvance,
+//       updatedAdvance,
+//       updatableBalance,
+//       updatedBalance,
+//     };
+
+//     const saved = await manageBookingModel.create(manageDoc);
+
+//     return res.status(201).json({
+//       success: true,
+//       message: "Manage-booking raised successfully",
+//       data: saved,
+//     });
+//   } catch (err) {
+//     console.error("updateBookingBalance error:", err);
+//     return res
+//       .status(500)
+//       .json({ success: false, message: "Server error", error: err.message });
+//   }
+// };
+
+//Crictical copy do not delete
+
+const updateBookingBalance = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { updates = {} } = req.body;
+
+    // ---- 1. Validate ID -------------------------------------------------
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid bookingId" });
+    }
+
+    // ---- 2. Load original booking + populate tour + travellers ----------
+    const original = await tourBookingModel
+      .findById(bookingId)
+      .populate("tourId")
+      .populate({ path: "travellers" })
+      .lean();
+
+    if (!original) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Original booking not found" });
+    }
+
+    const tour = original.tourId;
+
+    // ---- Payment Status -------------------------------------------------
+    const advancePaid = original.payment?.advance?.paid ?? false;
+    const balancePaid = original.payment?.balance?.paid ?? false;
+
+    // ---- 3. Merge UI updates --------------------------------------------
+    const merged = {
+      ...original,
+      ...updates,
+      travellers: original.travellers.map((origT, i) => ({
+        ...origT,
+        ...(updates.travellers?.[i] || {}),
+      })),
+      contact: { ...original.contact, ...(updates.contact || {}) },
+      billingAddress: {
+        ...original.billingAddress,
+        ...(updates.billingAddress || {}),
+      },
+    };
+
+    // ---- Helper: Get package (main or variant) -------------------------
+    const getPackage = (traveller) => {
+      return traveller.packageType === "main"
+        ? tour
+        : tour.variantPackage?.[traveller.variantPackageIndex] ?? tour;
+    };
+
+    // ---- Helper: Get advance price for one traveller -------------------
+    const getTravellerAdvance = (traveller) => {
+      const pkg = getPackage(traveller);
+      if (!pkg || !pkg.advanceAmount) return 0;
+
+      const isChild =
+        traveller.sharingType === "withBerth" ||
+        traveller.sharingType === "withoutBerth";
+
+      return isChild ? pkg.advanceAmount.child : pkg.advanceAmount.adult;
+    };
+
+    // ---- Helper: Get balance price for one traveller -------------------
+    const getTravellerBalance = (traveller) => {
+      const pkg = getPackage(traveller);
+      if (!pkg) return 0;
+
+      switch (traveller.sharingType) {
+        case "double":
+          return pkg.balanceDouble ?? 0;
+        case "triple":
+          return pkg.balanceTriple ?? 0;
+        case "withBerth":
+          return pkg.balanceChildWithBerth ?? 0;
+        case "withoutBerth":
+          return pkg.balanceChildWithoutBerth ?? 0;
+        default:
+          return 0;
+      }
+    };
+
+    // ---- Helper: Get addon price ---------------------------------------
+    const getAddonPrice = (traveller) => {
+      return traveller.selectedAddon?.price ?? 0;
+    };
+
+    // ---- Active Travellers Only ----------------------------------------
+    const activeTravellers = merged.travellers.filter(
+      (t) => !t.cancelled?.byAdmin && !t.cancelled?.byTraveller
+    );
+
+    let updatableAdvance = 0,
+      updatedAdvance = 0,
+      updatableBalance = 0,
+      updatedBalance = 0;
+
+    // ====================================================================
+    // CASE 1: Advance PAID → DO NOT RECALCULATE ADVANCE
+    // ====================================================================
+    if (advancePaid && !balancePaid) {
+      // CRITICAL: Advance is already PAID → copy from original booking
+      const originalAdvanceAmount = original.payment?.advance?.amount || 0;
+
+      updatableAdvance = originalAdvanceAmount;
+      updatedAdvance = originalAdvanceAmount;
+
+      // Now calculate only BALANCE based on updated travellers
+      const getTravellerPrice = (traveller) => {
+        const pkg = getPackage(traveller);
+        if (!pkg) return 0;
+
+        let base = 0;
+        switch (traveller.sharingType) {
+          case "double":
+            base = pkg.price?.doubleSharing ?? 0;
+            break;
+          case "triple":
+            base = pkg.price?.tripleSharing ?? 0;
+            break;
+          case "withBerth":
+            base = pkg.price?.childWithBerth ?? 0;
+            break;
+          case "withoutBerth":
+            base = pkg.price?.childWithoutBerth ?? 0;
+            break;
+          default:
+            base = pkg.price?.doubleSharing ?? 0;
+        }
+        const addon = getAddonPrice(traveller);
+        return base + addon;
+      };
+
+      const A = activeTravellers.reduce(
+        (sum, t) => sum + getTravellerPrice(t),
+        0
+      );
+
+      const C =
+        (merged.gvCancellationPool || 0) + (merged.irctcCancellationPool || 0);
+
+      const D = (merged.adminRemarks || [])
+        .filter((r) => (r.amount || 0) > 0)
+        .reduce((sum, r) => sum + r.amount, 0);
+
+      updatableBalance = A + C + D;
+
+      const negativeRemarksTotal = (merged.adminRemarks || [])
+        .filter((r) => (r.amount || 0) < 0)
+        .reduce((sum, r) => sum + Math.abs(r.amount), 0);
+
+      updatedBalance =
+        updatableBalance - originalAdvanceAmount - negativeRemarksTotal;
+    }
+    // ====================================================================
+    // CASE 2: Both unpaid → Calculate advance & balance fresh
+    // ====================================================================
+    else if (!advancePaid && !balancePaid) {
+      const A = activeTravellers.reduce(
+        (sum, t) => sum + getTravellerAdvance(t),
+        0
+      );
+
+      const B = activeTravellers.reduce((sum, t) => sum + getAddonPrice(t), 0);
+
+      updatableAdvance = A + B;
+      updatedAdvance = A + B;
+
+      const C = activeTravellers.reduce(
+        (sum, t) => sum + getTravellerBalance(t),
+        0
+      );
+
+      updatableBalance = C;
+      updatedBalance = C;
+    }
+    // ====================================================================
+    // INVALID STATE
+    // ====================================================================
+    else {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid payment state: balance cannot be paid before advance.",
+      });
+    }
+
+    // ---- 8. Build manageBooking document --------------------------------
+    const manageDoc = {
+      userId: merged.userId,
+      tourId: tour._id,
+      bookingId,
+      userData: merged.userData,
+      tourData: merged.tourData,
+
+      travellers: merged.travellers,
+      billingAddress: merged.billingAddress,
+      contact: merged.contact,
+      bookingType: merged.bookingType,
+      payment: merged.payment,
+      receipts: merged.receipts,
+      isTripCompleted: merged.isTripCompleted,
+      isBookingCompleted: merged.isBookingCompleted,
+      cancelled: merged.cancelled,
+      bookingDate: merged.bookingDate,
+      gvCancellationPool: merged.gvCancellationPool,
+      irctcCancellationPool: merged.irctcCancellationPool,
+      manageBooking: true,
+      adminRemarks: merged.adminRemarks || [],
+
+      approvedBy: false,
+      raisedBy: true,
+
+      updatableAdvance,
+      updatedAdvance,
+      updatableBalance,
+      updatedBalance,
+    };
+
+    const saved = await manageBookingModel.create(manageDoc);
+
+    return res.status(201).json({
+      success: true,
+      message: "Manage-booking raised successfully",
+      data: saved,
+    });
+  } catch (err) {
+    console.error("updateBookingBalance error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
+  }
+};
+
+const getManagedBookingsHistory = async (req, res) => {
+  try {
+    // Fetch all manageBooking documents with populated references
+    const history = await manageBookingModel
+      .find({})
+      .populate({
+        path: "userId",
+        select: "name email mobile", // Only needed user fields
+      })
+      .populate({
+        path: "tourId",
+        select: "title destination startDate endDate",
+      })
+      .populate({
+        path: "bookingId",
+        select:
+          "bookingDate payment.advance.amount payment.balance.amount travellers",
+      })
+      .sort({ createdAt: -1 }) // Latest first
+      .lean(); // Use lean for performance (returns plain JS objects)
+
+    // If no records
+    if (!history || history.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No manage-booking history found.",
+        data: [],
+        count: 0,
+      });
+    }
+
+    // Optional: Transform or enrich data if needed
+    const enrichedHistory = history.map((entry) => {
+      const original = entry.bookingId;
+
+      return {
+        _id: entry._id,
+        raisedAt: entry.bookingDate || entry.createdAt,
+        raisedBy: entry.raisedBy,
+        approvedBy: entry.approvedBy,
+
+        // User Info
+        user: {
+          _id: entry.userId?._id,
+          name: entry.userId?.name || "Unknown",
+          email: entry.userId?.email || "N/A",
+          mobile: entry.userId?.mobile || "N/A",
+        },
+
+        // Tour Info
+        tour: {
+          _id: entry.tourId?._id,
+          title: entry.tourId?.title || "Unknown Tour",
+          destination: entry.tourId?.destination || "N/A",
+          dates: entry.tourId
+            ? `${entry.tourId.startDate} to ${entry.tourId.endDate}`
+            : "N/A",
+        },
+
+        // Original Booking Reference
+        originalBooking: original
+          ? {
+              _id: original._id,
+              bookingDate: original.bookingDate,
+              advancePaid: original.payment?.advance?.amount || 0,
+              balanceDue: original.payment?.balance?.amount || 0,
+              totalTravellers: original.travellers?.length || 0,
+            }
+          : null,
+
+        // Requested Updates
+        requested: {
+          updatableAdvance: entry.updatableAdvance || 0,
+          updatedAdvance: entry.updatedAdvance || 0,
+          updatableBalance: entry.updatableBalance || 0,
+          updatedBalance: entry.updatedBalance || 0,
+        },
+
+        // Admin Remarks
+        adminRemarks: entry.adminRemarks || [],
+
+        // Status
+        status: entry.approvedBy
+          ? "APPROVED"
+          : entry.raisedBy
+          ? "PENDING"
+          : "DRAFT",
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Manage-booking history fetched successfully",
+      data: enrichedHistory,
+      count: enrichedHistory.length,
+    });
+  } catch (err) {
+    console.error("getManagedBookingsHistory error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch manage-booking history",
+      error: err.message,
+    });
+  }
+};
+
 export {
   tourList,
   changeTourAvailability,
@@ -1375,4 +1960,6 @@ export {
   updateModifyReceipt,
   viewBooking,
   getCancellationsByBooking,
+  updateBookingBalance,
+  getManagedBookingsHistory,
 };
