@@ -18,7 +18,9 @@ import {
   viewBooking,
   getCancellationsByBooking,
   updateBookingBalance,
-  getManagedBookingsHistory, // Ensure this is imported
+  getManagedBookingsHistory,
+  updateTourAdvance,
+  viewTourAdvance, // Ensure this is imported
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
@@ -39,7 +41,9 @@ tourRouter.put("/update-traveller", authTour, updateTraveller);
 tourRouter.put("/mark-advance-receipt", authTour, markAdvanceReceiptSent);
 tourRouter.put("/mark-balance-receipt", authTour, markBalanceReceiptSent);
 tourRouter.get("/view-tour-balance/:bookingId", authTour, viewTourBalance);
+tourRouter.get("/view-tour-advance/:bookingId", authTour, viewTourAdvance);
 tourRouter.post("/update-tour-balance/:bookingId", authTour, updateTourBalance);
+tourRouter.post("/update-tour-advance/:bookingId", authTour, updateTourAdvance);
 tourRouter.put("/mark-modify-receipt", authTour, updateModifyReceipt); // New route
 tourRouter.get("/view-booking-cancel/:bookingId", viewBooking); // New route
 tourRouter.get("/cancelled-bookings/:bookingId", getCancellationsByBooking); // New route

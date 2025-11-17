@@ -129,16 +129,26 @@ const tourBookingSchema = new mongoose.Schema({
   },
 
   bookingDate: { type: Date, default: Date.now },
-  gvCancellationPool: { type: Number, required: false },
-  irctcCancellationPool: { type: Number, required: false },
+  gvCancellationPool: { type: Number },
+  irctcCancellationPool: { type: Number },
   manageBooking: { type: Boolean, default: false },
+
+  // New independent field - specifically for advance payment related admin remarks
+  advanceAdminRemarks: [
+    {
+      remark: { type: String },
+      amount: { type: Number, default: 0 },
+      addedAt: { type: Date, default: Date.now },
+    },
+  ],
+
   dummyField: {},
 
-  // Updated field to store admin remarks with amount
+  // General admin remarks (kept separate)
   adminRemarks: [
     {
       remark: { type: String },
-      amount: { type: Number, default: 0 }, // Added amount field
+      amount: { type: Number, default: 0 },
       addedAt: { type: Date, default: Date.now },
     },
   ],

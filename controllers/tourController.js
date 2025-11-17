@@ -1075,6 +1075,56 @@ const viewTourBalance = async (req, res) => {
   }
 };
 
+const viewTourAdvance = async (req, res) => {
+  try {
+    const { bookingId } = req.params; // Using params for GET request
+
+    // Validate input
+    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing booking ID",
+      });
+    }
+
+    // Find the booking by ID, selecting only relevant advance-related fields
+    const booking = await tourBookingModel
+      .findById(bookingId)
+      .select("payment.advance payment.balance advanceAdminRemarks ")
+      .lean();
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Advance payment details and remarks retrieved successfully",
+      data: {
+        bookingId,
+        advance: {
+          amount: booking.payment.advance.amount,
+          paid: booking.payment.advance.paid,
+          paymentVerified: booking.payment.advance.paymentVerified,
+          paidAt: booking.payment.advance.paidAt || null,
+        },
+        advanceAdminRemarks: booking.advanceAdminRemarks || [],
+        isTripCompleted: booking.isTripCompleted,
+      },
+    });
+  } catch (error) {
+    console.error("Error retrieving tour advance details:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
 const updateTourBalance = async (req, res) => {
   try {
     const { bookingId } = req.params;
@@ -1212,6 +1262,155 @@ const updateTourBalance = async (req, res) => {
     });
   } catch (error) {
     console.error("Error updating tour balance:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+const updateTourAdvance = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+
+    // --- INPUT VALIDATION ---
+    if (!req.body || !req.body.updates) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body is missing or does not contain updates",
+      });
+    }
+
+    const { updates } = req.body;
+
+    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing booking ID",
+      });
+    }
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Updates must be a non-empty array",
+      });
+    }
+
+    // Validate each update item
+    for (const update of updates) {
+      const { remarks, amount } = update;
+
+      if (amount === undefined || typeof amount !== "number") {
+        return res.status(400).json({
+          success: false,
+          message: "Each update must include a valid 'amount' (number)",
+        });
+      }
+
+      if (remarks && (typeof remarks !== "string" || remarks.trim() === "")) {
+        return res.status(400).json({
+          success: false,
+          message: "Remarks, if provided, must be a non-empty string",
+        });
+      }
+
+      // Amount to shift must be positive
+      if (amount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Amount to shift from advance to balance must be greater than 0",
+        });
+      }
+    }
+
+    // --- FETCH BOOKING ---
+    const booking = await tourBookingModel.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    // --- BLOCK: If any traveller has applied for cancellation (but not yet approved by admin) ---
+    const hasTravellerAppliedForCancellation = booking.travellers.some(
+      (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === false
+    );
+
+    if (hasTravellerAppliedForCancellation) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Cannot shift advance to balance: One or more travellers have applied for cancellation",
+      });
+    }
+
+    // --- BLOCK: If both advance and balance are already fully paid ---
+    const advanceFullyPaid =
+      booking.payment.advance.paid === true &&
+      booking.payment.advance.paymentVerified === true;
+    const balanceFullyPaid = booking.payment.balance.paid === true;
+
+    if (advanceFullyPaid && balanceFullyPaid) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Cannot shift amount: Both advance and balance are already fully paid",
+      });
+    }
+
+    // --- BLOCK: If trip is already marked as completed ---
+    if (booking.isTripCompleted === true) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot shift amount: Already one request pending",
+      });
+    }
+
+    // --- APPLY UPDATES: Shift from Advance → Balance ---
+    for (const update of updates) {
+      const { remarks, amount } = update;
+
+      // Deduct from advance
+      booking.payment.advance.amount -= amount;
+
+      // Add to balance (ensure it's NOT marked as paid)
+      booking.payment.balance.amount += amount;
+      booking.payment.balance.paid = false;
+      booking.payment.balance.paymentVerified = false;
+      if (booking.payment.balance.paidAt) {
+        booking.payment.balance.paidAt = null; // reset if was previously paid
+      }
+
+      // Add remark to advanceAdminRemarks (not adminRemarks)
+      booking.advanceAdminRemarks.push({
+        remark: remarks?.trim() || "Amount shifted from advance to balance",
+        amount: amount,
+        addedAt: new Date(),
+      });
+    }
+
+    // --- FINAL: Mark trip as completed ---
+    booking.isTripCompleted = true;
+
+    await booking.save();
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Advance amount successfully shifted to balance and trip marked as completed",
+      data: {
+        bookingId: booking._id,
+        updatedAdvanceAmount: booking.payment.advance.amount,
+        updatedBalanceAmount: booking.payment.balance.amount,
+        advanceAdminRemarks: booking.advanceAdminRemarks,
+        isTripCompleted: booking.isTripCompleted,
+      },
+    });
+  } catch (error) {
+    console.error("Error in updateTourAdvance:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -1956,7 +2155,9 @@ export {
   markAdvanceReceiptSent,
   markBalanceReceiptSent,
   viewTourBalance,
+  viewTourAdvance,
   updateTourBalance,
+  updateTourAdvance,
   updateModifyReceipt,
   viewBooking,
   getCancellationsByBooking,

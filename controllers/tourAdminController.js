@@ -1210,57 +1210,45 @@ const rejectCancellation = async (req, res) => {
   }
 };
 const addMissingFieldsToAllBookings = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    // 1. Count total bookings (for response)
-    const totalBookings = await tourBookingModel
-      .countDocuments()
-      .session(session);
+    const totalBookings = await tourBookingModel.countDocuments();
 
-    // 2. Update ALL documents: add missing fields
     const result = await tourBookingModel.updateMany(
       {
         $or: [
           { manageBooking: { $exists: false } },
           { dummyField: { $exists: false } },
+          { advanceAdminRemarks: { $exists: false } },
         ],
       },
       {
         $set: {
           manageBooking: false,
           dummyField: {},
+          advanceAdminRemarks: [],
         },
-      },
-      { session }
+      }
     );
-
-    await session.commitTransaction();
 
     res.status(200).json({
       success: true,
-      message: "Missing fields added to all bookings",
+      message: "Migration completed successfully!",
       data: {
         totalBookings,
-        modifiedCount: result.modifiedCount,
         matchedCount: result.matchedCount,
-        fieldsAdded: ["manageBooking", "dummyField"],
+        modifiedCount: result.modifiedCount,
+        note: "Fields added: manageBooking, dummyField, advanceAdminRemarks",
       },
     });
   } catch (error) {
-    await session.abortTransaction();
-    console.error("addMissingFieldsToAllBookings error:", error);
+    console.error("Migration failed:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to update bookings",
+      message: "Migration failed",
       error: error.message,
     });
-  } finally {
-    session.endSession();
   }
 };
-
 const getPendingApprovals = async (req, res) => {
   try {
     const pendingBookings = await manageBookingModel
