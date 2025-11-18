@@ -147,8 +147,16 @@ const manageBookingSchema = new mongoose.Schema({
     },
   ],
 
-  approvedBy: { type: Boolean, default: false },
-  raisedBy: { type: Boolean, default: false },
+  approvedBy: {
+    type: Boolean,
+    default: false,
+    approveddAt: { type: Date, default: Date.now },
+  },
+  raisedBy: {
+    type: Boolean,
+    default: false,
+    raisedAt: { type: Date, default: Date.now },
+  },
 
   updatableAdvance: { type: Number },
   updatedAdvance: { type: Number },

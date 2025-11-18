@@ -152,6 +152,7 @@ const tourBookingSchema = new mongoose.Schema({
       addedAt: { type: Date, default: Date.now },
     },
   ],
+  cancellationRequest: { type: Boolean, default: false },
 });
 
 const tourBookingModel =

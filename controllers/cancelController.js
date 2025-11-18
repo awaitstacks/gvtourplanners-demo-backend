@@ -209,7 +209,7 @@
 //         .status(400)
 //         .json({ message: "No valid cancelled travellers provided." });
 
-//     // Sum train + flight breakdowns + optional pre-sum
+//     // Sum train + flight breakdowns
 //     const trainSum = Number(sumNumericValues(trainCancellations).toFixed(2));
 //     const flightSum = Number(sumNumericValues(flightCancellations).toFixed(2));
 //     const irctcTotal = Number(
@@ -235,7 +235,7 @@
 //     const cancelRule = await CancelRule.findOne().lean();
 
 //     // -----------------------
-//     // Fully-paid flow
+//     // Fully-paid flow (unchanged)
 //     // -----------------------
 //     if (isFullyPaidFlow) {
 //       const fullyPaidTiers = cancelRule?.gv?.fullyPaid?.tiers;
@@ -308,7 +308,7 @@
 //       });
 
 //       return res.status(200).json({
-//         message: "Fully-paid cancellation completed (multiple travellers)",
+//         message: "Fully-paid cancellation completed",
 //         data: {
 //           cancellationRecordId: cancellationDoc._id,
 //           bookingId: booking._id,
@@ -328,7 +328,7 @@
 //     }
 
 //     // -----------------------
-//     // Advance-Only Flow (WITH REFUND ALREADY ISSUED CHECK)
+//     // Advance-Only Flow – ALL TRAVELLERS CANCELLED
 //     // -----------------------
 //     if (isAdvanceOnlyFlow) {
 //       const advancePaidTiers = cancelRule?.gv?.advancePaid?.tiers;
@@ -345,6 +345,7 @@
 //         .reduce((s, r) => s + Number(r.amount), 0);
 //       const netAmountPaid = Number((advAmount - adminNegSum).toFixed(2));
 
+//       // === GV CANCELLATION FROM ADVANCE ONLY ===
 //       let gvCancellationAmount = 0;
 //       for (const traveller of cancelledTravellers) {
 //         const advPerTraveller = getTravellerAdvanceAmount(traveller, tourData);
@@ -352,13 +353,15 @@
 //       }
 //       gvCancellationAmount = Number(gvCancellationAmount.toFixed(2));
 
+//       // === REMAINING ACTIVE TRAVELLERS ===
 //       const activeTravellers = travellers.filter(
 //         (_, idx) => !cancelledTravellerIndexes.includes(idx)
 //       );
-//       let preBalanceAmount = 0;
-//       for (const t of activeTravellers)
-//         preBalanceAmount += getTravellerFullPackageCost(t, tourData);
-//       preBalanceAmount = Number(preBalanceAmount.toFixed(2));
+//       const preBalanceAmount = Number(
+//         activeTravellers
+//           .reduce((sum, t) => sum + getTravellerFullPackageCost(t, tourData), 0)
+//           .toFixed(2)
+//       );
 
 //       const remarksAmount = Number(extraRemarkAmount || 0);
 //       const bookingBalanceManagementAmount = (booking.adminRemarks || [])
@@ -386,20 +389,42 @@
 //           ? Number(booking.irctcCancellationPool || 0)
 //           : 0;
 
-//       const updatedBalance = Number(
-//         (
-//           bookingBalanceManagementAmount +
-//           remarksAmount +
-//           preBalanceAmount +
-//           gvCancellationAmount +
-//           irctcTotal +
-//           gvPool +
-//           irctcPool -
-//           netAmountPaid
-//         ).toFixed(2)
-//       );
+//       // === ALL TRAVELLERS CANCELLED → SPECIAL REFUND LOGIC ===
+//       let refundAmount = 0;
+//       let updatedBalance = 0;
 
-//       // CRITICAL CHECK: Refund already issued?
+//       if (activeTravellers.length === 0) {
+//         // All cancelled → refund = GV + remarks + balance mgmt - net paid
+//         refundAmount = Number(
+//           (
+//             gvCancellationAmount +
+//             remarksAmount +
+//             irctcCancellationAmount -
+//             netAmountPaid
+//           ).toFixed(2)
+//         );
+//         if (refundAmount < 0) refundAmount = Number(refundAmount * -1);
+//         updatedBalance = -refundAmount;
+//       } else {
+//         // Partial cancellation → normal logic
+//         updatedBalance = Number(
+//           (
+//             bookingBalanceManagementAmount +
+//             remarksAmount +
+//             preBalanceAmount +
+//             gvCancellationAmount +
+//             irctcTotal +
+//             gvPool +
+//             irctcPool -
+//             netAmountPaid
+//           ).toFixed(2)
+//         );
+//         if (updatedBalance < 0) {
+//           refundAmount = Number((-updatedBalance).toFixed(2));
+//         }
+//       }
+
+//       // === REFUND ALREADY ISSUED CHECK ===
 //       if (balAmount < 0) {
 //         const cancellationDoc = new cancellationModel({
 //           bookingId: booking._id,
@@ -451,12 +476,7 @@
 //         });
 //       }
 
-//       // Normal refund calculation
-//       let refundAmount = 0;
-//       if (updatedBalance < 0) {
-//         refundAmount = Number((-updatedBalance).toFixed(2));
-//       }
-
+//       // === SAVE CANCELLATION RECORD ===
 //       const cancellationDoc = new cancellationModel({
 //         bookingId: booking._id,
 //         travellerIds: cancelledTravellers.map((t) => t._id),
@@ -519,7 +539,6 @@
 // };
 
 // export default cancelBookingController;
-
 import mongoose from "mongoose";
 import tourBookingModel from "../models/tourBookingmodel.js";
 import tourModel from "../models/tourModel.js";
@@ -677,13 +696,6 @@ export const cancelBookingController = async (req, res) => {
       return res.status(400).json({ message: "bookingId required" });
     if (!cancellationDate)
       return res.status(400).json({ message: "cancellationDate required" });
-    if (
-      !Array.isArray(cancelledTravellerIndexes) ||
-      cancelledTravellerIndexes.length === 0
-    )
-      return res
-        .status(400)
-        .json({ message: "cancelledTravellerIndexes (array) required" });
 
     const cancellationDt = new Date(cancellationDate);
     if (isNaN(cancellationDt.getTime()))
@@ -711,7 +723,7 @@ export const cancelBookingController = async (req, res) => {
     const lastBookingDate = tourData.lastBookingDate
       ? new Date(tourData.lastBookingDate)
       : null;
-    const daysBefore = lastBookingDate
+    const daysSince = lastBookingDate
       ? Math.max(0, daysBetween(cancellationDt, lastBookingDate))
       : 0;
 
@@ -757,7 +769,7 @@ export const cancelBookingController = async (req, res) => {
     const cancelRule = await CancelRule.findOne().lean();
 
     // -----------------------
-    // Fully-paid flow (unchanged)
+    // Fully-paid flow
     // -----------------------
     if (isFullyPaidFlow) {
       const fullyPaidTiers = cancelRule?.gv?.fullyPaid?.tiers;
@@ -768,7 +780,7 @@ export const cancelBookingController = async (req, res) => {
       }
 
       const matchedPercentage = matchPercentageFromTiers(
-        daysBefore,
+        daysSince,
         fullyPaidTiers
       );
 
@@ -812,7 +824,7 @@ export const cancelBookingController = async (req, res) => {
         travellerIds: cancelledTravellers.map((t) => t._id).filter(Boolean),
         travellerIndexes: cancelledTravellerIndexes,
         netAmountPaid,
-        noOfDays: daysBefore,
+        noOfDays: daysSince,
         gvCancellationAmount,
         irctcCancellationAmount: irctcTotal,
         remarksAmount,
@@ -829,12 +841,19 @@ export const cancelBookingController = async (req, res) => {
         raisedBy: true,
       });
 
+      // ONLY CHANGE: Set cancellationRequest = true
+      await tourBookingModel.findByIdAndUpdate(booking._id, {
+        $set: {
+          cancellationRequest: true,
+        },
+      });
+
       return res.status(200).json({
         message: "Fully-paid cancellation completed",
         data: {
           cancellationRecordId: cancellationDoc._id,
           bookingId: booking._id,
-          daysBefore,
+          daysBefore: daysSince,
           matchedPercentage,
           netAmountPaid,
           gvCancellationAmount,
@@ -850,24 +869,23 @@ export const cancelBookingController = async (req, res) => {
     }
 
     // -----------------------
-    // Advance-Only Flow – ALL TRAVELLERS CANCELLED
+    // Advance-Only Flow
     // -----------------------
     if (isAdvanceOnlyFlow) {
       const advancePaidTiers = cancelRule?.gv?.advancePaid?.tiers;
       let matchedPercentage = 100;
       if (Array.isArray(advancePaidTiers) && advancePaidTiers.length > 0)
         matchedPercentage = matchPercentageFromTiers(
-          daysBefore,
+          daysSince,
           advancePaidTiers
         );
-      if (daysBefore > 60) matchedPercentage = 0;
+      if (daysSince > 60) matchedPercentage = 0;
 
       const adminNegSum = (booking.adminRemarks || [])
         .filter((r) => Number(r.amount) < 0)
         .reduce((s, r) => s + Number(r.amount), 0);
       const netAmountPaid = Number((advAmount - adminNegSum).toFixed(2));
 
-      // === GV CANCELLATION FROM ADVANCE ONLY ===
       let gvCancellationAmount = 0;
       for (const traveller of cancelledTravellers) {
         const advPerTraveller = getTravellerAdvanceAmount(traveller, tourData);
@@ -875,7 +893,6 @@ export const cancelBookingController = async (req, res) => {
       }
       gvCancellationAmount = Number(gvCancellationAmount.toFixed(2));
 
-      // === REMAINING ACTIVE TRAVELLERS ===
       const activeTravellers = travellers.filter(
         (_, idx) => !cancelledTravellerIndexes.includes(idx)
       );
@@ -911,24 +928,21 @@ export const cancelBookingController = async (req, res) => {
           ? Number(booking.irctcCancellationPool || 0)
           : 0;
 
-      // === ALL TRAVELLERS CANCELLED → SPECIAL REFUND LOGIC ===
       let refundAmount = 0;
       let updatedBalance = 0;
 
       if (activeTravellers.length === 0) {
-        // All cancelled → refund = GV + remarks + balance mgmt - net paid
         refundAmount = Number(
           (
             gvCancellationAmount +
             remarksAmount +
-            irctcCancellationAmount -
+            irctcTotal -
             netAmountPaid
           ).toFixed(2)
         );
         if (refundAmount < 0) refundAmount = Number(refundAmount * -1);
         updatedBalance = -refundAmount;
       } else {
-        // Partial cancellation → normal logic
         updatedBalance = Number(
           (
             bookingBalanceManagementAmount +
@@ -946,14 +960,14 @@ export const cancelBookingController = async (req, res) => {
         }
       }
 
-      // === REFUND ALREADY ISSUED CHECK ===
+      // REFUND ALREADY ISSUED CHECK
       if (balAmount < 0) {
         const cancellationDoc = new cancellationModel({
           bookingId: booking._id,
           travellerIds: cancelledTravellers.map((t) => t._id),
           travellerIndexes: cancelledTravellerIndexes,
           netAmountPaid,
-          noOfDays: daysBefore,
+          noOfDays: daysSince,
           gvCancellationAmount,
           irctcCancellationAmount: irctcTotal,
           preBalanceAmount,
@@ -974,12 +988,19 @@ export const cancelBookingController = async (req, res) => {
           raisedBy: true,
         });
 
+        // Also set cancellationRequest = true here
+        await tourBookingModel.findByIdAndUpdate(booking._id, {
+          $set: {
+            cancellationRequest: true,
+          },
+        });
+
         return res.status(200).json({
           message: "Refund already issued. No further refund.",
           data: {
             cancellationRecordId: cancellationDoc._id,
             bookingId: booking._id,
-            daysBefore,
+            daysBefore: daysSince,
             matchedPercentage,
             netAmountPaid,
             gvCancellationAmount,
@@ -998,13 +1019,13 @@ export const cancelBookingController = async (req, res) => {
         });
       }
 
-      // === SAVE CANCELLATION RECORD ===
+      // SAVE CANCELLATION RECORD
       const cancellationDoc = new cancellationModel({
         bookingId: booking._id,
         travellerIds: cancelledTravellers.map((t) => t._id),
         travellerIndexes: cancelledTravellerIndexes,
         netAmountPaid,
-        noOfDays: daysBefore,
+        noOfDays: daysSince,
         gvCancellationAmount,
         irctcCancellationAmount: irctcTotal,
         preBalanceAmount,
@@ -1025,12 +1046,19 @@ export const cancelBookingController = async (req, res) => {
         raisedBy: true,
       });
 
+      // ONLY CHANGE: Set cancellationRequest = true
+      await tourBookingModel.findByIdAndUpdate(booking._id, {
+        $set: {
+          cancellationRequest: true,
+        },
+      });
+
       return res.status(200).json({
         message: "Advance-only cancellation completed",
         data: {
           cancellationRecordId: cancellationDoc._id,
           bookingId: booking._id,
-          daysBefore,
+          daysBefore: daysSince,
           matchedPercentage,
           netAmountPaid,
           gvCancellationAmount,
