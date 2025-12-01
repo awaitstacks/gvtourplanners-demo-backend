@@ -1,4 +1,4 @@
-import tourBookingModel from "../models/tourBookingModel.js";
+import tourBookingModel from "../models/tourBookingmodel.js";
 import tourModel from "../models/tourModel.js";
 import cancellationModel from "../models/cancellationModel.js";
 import mongoose from "mongoose";
