@@ -916,14 +916,172 @@ const getCancellations = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-/**
- * POST /touradmin/approvecancellation
- * Body: { bookingId, travellerIds: [...] }
- *
- * 1. Updates tourBooking.payment.balance.amount = cancellation.updatedBalance
- * 2. Sets cancelled.byAdmin = true for ALL given travellerIds
- * 3. Sets cancellation.raisedBy = false, approvedBy = true
- */
+// const approveCancellation = async (req, res) => {
+//   const session = await mongoose.startSession();
+//   session.startTransaction();
+
+//   try {
+//     const { bookingId, travellerIds, cancellationId } = req.body;
+
+//     // === VALIDATION ===
+//     if (
+//       !bookingId ||
+//       !cancellationId ||
+//       !Array.isArray(travellerIds) ||
+//       travellerIds.length === 0
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message:
+//           "bookingId, cancellationId, and travellerIds array are required",
+//       });
+//     }
+
+//     if (
+//       !mongoose.Types.ObjectId.isValid(bookingId) ||
+//       !mongoose.Types.ObjectId.isValid(cancellationId)
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid bookingId or cancellationId",
+//       });
+//     }
+
+//     const invalidIds = travellerIds.filter(
+//       (id) => !mongoose.Types.ObjectId.isValid(id)
+//     );
+//     if (invalidIds.length > 0) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid travellerId(s)",
+//         invalidIds,
+//       });
+//     }
+
+//     // === FIND THE EXACT CANCELLATION DOCUMENT ===
+//     const cancellation = await cancellationModel
+//       .findOne({
+//         _id: cancellationId,
+//         bookingId,
+//         raisedBy: true,
+//         approvedBy: { $ne: true },
+//       })
+//       .session(session);
+
+//     if (!cancellation) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Cancellation request not found or already processed",
+//       });
+//     }
+
+//     // Validate travellerIds match exactly
+//     const cancellationTravellerIds = cancellation.travellerIds.map((id) =>
+//       id.toString()
+//     );
+//     const requestedIds = travellerIds.map((id) => id.toString());
+
+//     const mismatch =
+//       requestedIds.some((id) => !cancellationTravellerIds.includes(id)) ||
+//       cancellationTravellerIds.some((id) => !requestedIds.includes(id));
+
+//     if (mismatch) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Traveller IDs do not match the cancellation request",
+//       });
+//     }
+
+//     // === FETCH BOOKING ===
+//     const booking = await tourBookingModel
+//       .findById(bookingId)
+//       .select(
+//         "travellers gvCancellationPool irctcCancellationPool cancellationRequest payment"
+//       )
+//       .session(session);
+
+//     if (!booking) {
+//       throw new Error("Booking not found");
+//     }
+
+//     // === CALCULATE POOL ADDITIONS ===
+//     const gvAdd =
+//       (cancellation.gvCancellationAmount || 0) +
+//       (cancellation.remarksAmount || 0);
+//     const irctcAdd = cancellation.irctcCancellationAmount || 0;
+
+//     const bookingNewGvPool = (booking.gvCancellationPool || 0) + gvAdd;
+//     const bookingNewIrctcPool = (booking.irctcCancellationPool || 0) + irctcAdd;
+
+//     // === PREPARE UPDATE OBJECT FOR BOOKING ===
+//     const setObj = {
+//       gvCancellationPool: bookingNewGvPool,
+//       irctcCancellationPool: bookingNewIrctcPool,
+//       cancellationRequest: false,
+//     };
+
+//     // Always update balance amount from cancellation document
+//     setObj["payment.balance.amount"] = cancellation.updatedBalance;
+
+//     // NEW LOGIC: If updatedBalance is 0 → mark balance as fully paid & verified
+//     if (cancellation.updatedBalance === 0) {
+//       setObj["payment.balance.paid"] = true;
+//       setObj["payment.balance.paymentVerified"] = true;
+//       setObj["payment.balance.paidAt"] = new Date();
+//     }
+
+//     // Update travellers' cancellation status
+//     const arrayFilters = [];
+//     travellerIds.forEach((id, idx) => {
+//       const filter = `t${idx}`;
+//       setObj[`travellers.$[${filter}].cancelled.byAdmin`] = true;
+//       setObj[`travellers.$[${filter}].cancelled.cancelledAt`] = new Date();
+//       arrayFilters.push({ [`${filter}._id`]: new mongoose.Types.ObjectId(id) });
+//     });
+
+//     // === UPDATE BOOKING ===
+//     await tourBookingModel.findByIdAndUpdate(
+//       bookingId,
+//       { $set: setObj },
+//       { arrayFilters, session, new: true }
+//     );
+
+//     // === UPDATE CANCELLATION DOCUMENT ===
+//     await cancellationModel.findByIdAndUpdate(
+//       cancellationId,
+//       {
+//         approvedBy: true,
+//         approvedAt: new Date(),
+//         raisedBy: false,
+//       },
+//       { session }
+//     );
+
+//     await session.commitTransaction();
+
+//     return res.json({
+//       success: true,
+//       message: "Cancellation approved successfully",
+//       data: {
+//         cancellationId: cancellation._id,
+//         bookingId,
+//         travellerIds,
+//         newBalanceAmount: cancellation.updatedBalance,
+//         balanceFullyPaid: cancellation.updatedBalance === 0,
+//         cancellationRequestCleared: true,
+//       },
+//     });
+//   } catch (err) {
+//     await session.abortTransaction();
+//     console.error("approveCancellation error:", err);
+//     return res.status(500).json({
+//       success: false,
+//       message: err.message || "Failed to approve cancellation",
+//     });
+//   } finally {
+//     session.endSession();
+//   }
+// };
 const approveCancellation = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -955,24 +1113,24 @@ const approveCancellation = async (req, res) => {
       });
     }
 
-    const invalidIds = travellerIds.filter(
+    const invalidTravellerIds = travellerIds.filter(
       (id) => !mongoose.Types.ObjectId.isValid(id)
     );
-    if (invalidIds.length > 0) {
+    if (invalidTravellerIds.length > 0) {
       return res.status(400).json({
         success: false,
-        message: "Invalid travellerId(s)",
-        invalidIds,
+        message: "Invalid travellerId(s) in request",
+        invalidIds: invalidTravellerIds,
       });
     }
 
-    // === FIND THE EXACT CANCELLATION DOCUMENT BY _id ===
+    // === FIND THE EXACT CANCELLATION REQUEST ===
     const cancellation = await cancellationModel
       .findOne({
         _id: cancellationId,
         bookingId,
         raisedBy: true,
-        approvedBy: { $ne: true }, // not already approved
+        approvedBy: { $ne: true },
       })
       .session(session);
 
@@ -983,19 +1141,28 @@ const approveCancellation = async (req, res) => {
       });
     }
 
-    // Double-check travellerIds match exactly
-    const cancellationTravellerIds = cancellation.travellerIds.map((id) =>
-      id.toString()
-    );
-    const requestedIds = travellerIds.map((id) => id.toString());
-    const mismatch =
-      requestedIds.some((id) => !cancellationTravellerIds.includes(id)) ||
-      cancellationTravellerIds.some((id) => !requestedIds.includes(id));
+    // === STRICT TRAVELLER ID MATCHING ===
+    const originalTravellerIds = cancellation.travellerIds
+      .map((id) => id.toString())
+      .sort();
+    const requestedTravellerIds = travellerIds
+      .map((id) => id.toString())
+      .sort();
 
-    if (mismatch) {
+    const isExactMatch =
+      originalTravellerIds.length === requestedTravellerIds.length &&
+      originalTravellerIds.every(
+        (id, index) => id === requestedTravellerIds[index]
+      );
+
+    if (!isExactMatch) {
       return res.status(400).json({
         success: false,
-        message: "Traveller IDs do not match the cancellation request",
+        message: "Invalid traveller request",
+        details:
+          "The list of travellers does not exactly match the original cancellation request",
+        expected: originalTravellerIds,
+        received: requestedTravellerIds,
       });
     }
 
@@ -1011,7 +1178,7 @@ const approveCancellation = async (req, res) => {
       throw new Error("Booking not found");
     }
 
-    // === CALCULATE POOL ADDITIONS FROM THIS EXACT CANCELLATION ===
+    // === CALCULATE POOL ADDITIONS ===
     const gvAdd =
       (cancellation.gvCancellationAmount || 0) +
       (cancellation.remarksAmount || 0);
@@ -1020,29 +1187,41 @@ const approveCancellation = async (req, res) => {
     const bookingNewGvPool = (booking.gvCancellationPool || 0) + gvAdd;
     const bookingNewIrctcPool = (booking.irctcCancellationPool || 0) + irctcAdd;
 
-    // === UPDATE BOOKING ===
+    // === PREPARE UPDATE OBJECT ===
     const setObj = {
-      "payment.balance.amount": cancellation.updatedBalance,
       gvCancellationPool: bookingNewGvPool,
       irctcCancellationPool: bookingNewIrctcPool,
       cancellationRequest: false,
+      "payment.balance.amount": cancellation.updatedBalance,
     };
 
+    // Only mark as paid & verified if updated balance becomes zero
+    if (cancellation.updatedBalance < 0 || cancellation.updatedBalance === 0) {
+      setObj["payment.balance.amount"] = Number(0);
+      setObj["payment.balance.paid"] = true;
+      setObj["payment.balance.paymentVerified"] = true;
+      setObj["payment.balance.paidAt"] = new Date();
+    }
+
+    // Update traveller cancellation status
     const arrayFilters = [];
     travellerIds.forEach((id, idx) => {
-      const filter = `t${idx}`;
-      setObj[`travellers.$[${filter}].cancelled.byAdmin`] = true;
-      setObj[`travellers.$[${filter}].cancelled.cancelledAt`] = new Date();
-      arrayFilters.push({ [`${filter}._id`]: new mongoose.Types.ObjectId(id) });
+      const filterName = `elem${idx}`;
+      setObj[`travellers.$[${filterName}].cancelled.byAdmin`] = true;
+      setObj[`travellers.$[${filterName}].cancelled.cancelledAt`] = new Date();
+      arrayFilters.push({
+        [`${filterName}._id`]: new mongoose.Types.ObjectId(id),
+      });
     });
 
+    // === UPDATE BOOKING ===
     await tourBookingModel.findByIdAndUpdate(
       bookingId,
       { $set: setObj },
-      { arrayFilters, session }
+      { arrayFilters, session, new: true }
     );
 
-    // === UPDATE THE EXACT CANCELLATION DOCUMENT ===
+    // === MARK CANCELLATION AS APPROVED ===
     await cancellationModel.findByIdAndUpdate(
       cancellationId,
       {
@@ -1063,7 +1242,7 @@ const approveCancellation = async (req, res) => {
         bookingId,
         travellerIds,
         newBalanceAmount: cancellation.updatedBalance,
-        cancellationRequestCleared: true,
+        balanceFullyPaid: cancellation.updatedBalance === 0,
       },
     });
   } catch (err) {
@@ -1077,13 +1256,6 @@ const approveCancellation = async (req, res) => {
     session.endSession();
   }
 };
-/**
- * POST /touradmin/rejectcancellation
- * Body: { bookingId, travellerIds: [...], cancellationId }
- *
- * 1. Sets cancellation.raisedBy = false
- * 2. Sets travellers.cancelled.byTraveller = false for given travellerIds
- */
 const rejectCancellation = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
