@@ -923,19 +923,12 @@ const approveCancellation = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { bookingId, travellerIds, cancellationId } = req.body;
+    const { bookingId, cancellationId } = req.body;
 
-    // === VALIDATION ===
-    if (
-      !bookingId ||
-      !cancellationId ||
-      !Array.isArray(travellerIds) ||
-      travellerIds.length === 0
-    ) {
+    if (!bookingId || !cancellationId) {
       return res.status(400).json({
         success: false,
-        message:
-          "bookingId, cancellationId, and travellerIds array are required",
+        message: "bookingId and cancellationId are required",
       });
     }
 
@@ -945,22 +938,10 @@ const approveCancellation = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "Invalid bookingId or cancellationId",
+        message: "Invalid bookingId or cancellationId format",
       });
     }
 
-    const invalidTravellerIds = travellerIds.filter(
-      (id) => !mongoose.Types.ObjectId.isValid(id)
-    );
-    if (invalidTravellerIds.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid travellerId(s) in request",
-        invalidIds: invalidTravellerIds,
-      });
-    }
-
-    // === FIND THE EXACT CANCELLATION REQUEST ===
     const cancellation = await cancellationModel
       .findOne({
         _id: cancellationId,
@@ -977,94 +958,139 @@ const approveCancellation = async (req, res) => {
       });
     }
 
-    // === STRICT TRAVELLER ID MATCHING ===
-    const originalTravellerIds = cancellation.travellerIds
-      .map((id) => id.toString())
-      .sort();
-    const requestedTravellerIds = travellerIds
-      .map((id) => id.toString())
-      .sort();
-
-    const isExactMatch =
-      originalTravellerIds.length === requestedTravellerIds.length &&
-      originalTravellerIds.every(
-        (id, index) => id === requestedTravellerIds[index]
-      );
-
-    if (!isExactMatch) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid traveller request",
-        details:
-          "The list of travellers does not exactly match the original cancellation request",
-        expected: originalTravellerIds,
-        received: requestedTravellerIds,
-      });
-    }
-
-    // === FETCH BOOKING ===
     const booking = await tourBookingModel
       .findById(bookingId)
       .select(
-        "travellers gvCancellationPool irctcCancellationPool cancellationRequest payment"
+        "travellers gvCancellationPool irctcCancellationPool cancellationRequest payment contact.mobile"
       )
       .session(session);
 
-    if (!booking) {
-      throw new Error("Booking not found");
+    if (!booking) throw new Error("Booking not found");
+
+    // === PENDING TRAVELLERS ===
+    const pendingTravellers = (booking.travellers || []).filter(
+      (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin !== true
+    );
+
+    const pendingCount = pendingTravellers.length;
+    const requestedCount = (cancellation.travellerIds || []).length;
+
+    // Build name list
+    const getName = (t) =>
+      `${t.title || ""} ${t.firstName || ""} ${t.lastName || ""}`.trim() ||
+      "Unknown Traveller";
+
+    const pendingNames = pendingTravellers.map(getName);
+    const requestedNames = (cancellation.travellerIds || []).map((id) => {
+      const t = booking.travellers.find(
+        (t) => t._id.toString() === id.toString()
+      );
+      return t ? getName(t) : `Deleted Traveller (ID: ${id})`;
+    });
+
+    // === COUNT MISMATCH ===
+    if (pendingCount !== requestedCount) {
+      return res.status(400).json({
+        success: false,
+        message: `CANCELLATION BLOCKED: Traveller
+
+Travellers pending approval: ${pendingCount}
+Travellers in request: ${requestedCount}
+
+Pending: ${pendingNames.join(", ") || "None"}
+Requested: ${requestedNames.join(", ") || "None"}
+
+Fix the mismatch before approving!`,
+        details: {
+          pendingTravellers: pendingTravellers.map((t) => ({
+            name: getName(t),
+            id: t._id.toString(),
+            age: t.age,
+            gender: t.gender,
+          })),
+          requestedTravellers: requestedNames,
+          pendingCount,
+          requestedCount,
+        },
+      });
     }
 
-    // === CALCULATE POOL ADDITIONS ===
+    // === ID MISMATCH ===
+    const pendingIds = pendingTravellers.map((t) => t._id.toString()).sort();
+    const requestIds = (cancellation.travellerIds || [])
+      .map((id) => id.toString())
+      .sort();
+
+    const idsMatch =
+      pendingIds.length === requestIds.length &&
+      pendingIds.every((id, i) => id === requestIds[i]);
+
+    if (!idsMatch) {
+      return res.status(400).json({
+        success: false,
+        message: `SECURITY BLOCKED: Wrong travellers detected!
+
+Pending Approval:
+→ ${pendingNames.join("\n→ ") || "None"}
+
+But Request Contains:
+→ ${requestedNames.join("\n→ ") || "None"}
+
+Approval denied!`,
+        details: {
+          pendingTravellers: pendingTravellers.map((t) => ({
+            name: getName(t),
+            id: t._id.toString(),
+          })),
+          requestedTravellers: requestedNames.map((name, i) => ({
+            name,
+            id: requestIds[i],
+          })),
+          securityNote: "Only exact matching travellers can be cancelled",
+        },
+      });
+    }
+
+    // === ALL GOOD — APPROVE ===
     const gvAdd =
       (cancellation.gvCancellationAmount || 0) +
       (cancellation.remarksAmount || 0);
     const irctcAdd = cancellation.irctcCancellationAmount || 0;
 
-    const bookingNewGvPool = (booking.gvCancellationPool || 0) + gvAdd;
-    const bookingNewIrctcPool = (booking.irctcCancellationPool || 0) + irctcAdd;
+    const newGvPool = (booking.gvCancellationPool || 0) + gvAdd;
+    const newIrctcPool = (booking.irctcCancellationPool || 0) + irctcAdd;
+    const finalBalance = Math.max(0, cancellation.updatedBalance || 0);
 
-    // === PREPARE UPDATE OBJECT ===
     const setObj = {
-      gvCancellationPool: bookingNewGvPool,
-      irctcCancellationPool: bookingNewIrctcPool,
+      gvCancellationPool: newGvPool,
+      irctcCancellationPool: newIrctcPool,
       cancellationRequest: false,
-      "payment.balance.amount": cancellation.updatedBalance,
+      "payment.balance.amount": Number(finalBalance),
     };
 
-    // Only mark as paid & verified if updated balance becomes zero
-    if (cancellation.updatedBalance < 0 || cancellation.updatedBalance === 0) {
-      setObj["payment.balance.amount"] = Number(0);
+    if (finalBalance === 0) {
       setObj["payment.balance.paid"] = true;
       setObj["payment.balance.paymentVerified"] = true;
       setObj["payment.balance.paidAt"] = new Date();
     }
 
-    // Update traveller cancellation status
     const arrayFilters = [];
-    travellerIds.forEach((id, idx) => {
-      const filterName = `elem${idx}`;
-      setObj[`travellers.$[${filterName}].cancelled.byAdmin`] = true;
-      setObj[`travellers.$[${filterName}].cancelled.cancelledAt`] = new Date();
-      arrayFilters.push({
-        [`${filterName}._id`]: new mongoose.Types.ObjectId(id),
-      });
+    pendingTravellers.forEach((t, i) => {
+      const elem = `elem${i}`;
+      setObj[`travellers.$[${elem}].cancelled.byAdmin`] = true;
+      setObj[`travellers.$[${elem}].cancelled.cancelledAt`] = new Date();
+      arrayFilters.push({ [`${elem}._id`]: t._id });
     });
 
-    // === UPDATE BOOKING ===
     await tourBookingModel.findByIdAndUpdate(
       bookingId,
       { $set: setObj },
       { arrayFilters, session, new: true }
     );
 
-    // === MARK CANCELLATION AS APPROVED ===
     await cancellationModel.findByIdAndUpdate(
       cancellationId,
-      {
-        approvedBy: true,
-        approvedAt: new Date(),
-        raisedBy: false,
-      },
+      { approvedBy: true, approvedAt: new Date(), raisedBy: false },
       { session }
     );
 
@@ -1072,13 +1098,16 @@ const approveCancellation = async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Cancellation approved successfully",
+      message: `Cancellation approved successfully!
+
+Cancelled: ${pendingNames.join(", ")}
+
+New balance: ₹${finalBalance} ${finalBalance === 0 ? "(Fully Paid)" : ""}`,
       data: {
-        cancellationId: cancellation._id,
-        bookingId,
-        travellerIds,
-        newBalanceAmount: cancellation.updatedBalance,
-        balanceFullyPaid: cancellation.updatedBalance === 0,
+        cancelledTravellers: pendingNames,
+        cancelledCount: pendingCount,
+        newBalance: finalBalance,
+        balancePaid: finalBalance === 0,
       },
     });
   } catch (err) {
@@ -1086,7 +1115,7 @@ const approveCancellation = async (req, res) => {
     console.error("approveCancellation error:", err);
     return res.status(500).json({
       success: false,
-      message: err.message || "Failed to approve cancellation",
+      message: "Server error during approval. Please try again.",
     });
   } finally {
     session.endSession();
