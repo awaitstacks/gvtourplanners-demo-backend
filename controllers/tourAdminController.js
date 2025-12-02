@@ -994,13 +994,13 @@ const approveCancellation = async (req, res) => {
         success: false,
         message: `CANCELLATION BLOCKED: Traveller
 
-Travellers pending approval: ${pendingCount}
-Travellers in request: ${requestedCount}
+User requested : ${pendingCount} traveller's
+Admin calculated : ${requestedCount} traveller's
 
-Pending: ${pendingNames.join(", ") || "None"}
-Requested: ${requestedNames.join(", ") || "None"}
+User requested: ${pendingNames.join(", ") || "None"}
+But Admin worked: ${requestedNames.join(", ") || "None"}
 
-Fix the mismatch before approving!`,
+Kindly reject this and raise new request`,
         details: {
           pendingTravellers: pendingTravellers.map((t) => ({
             name: getName(t),
@@ -1030,13 +1030,13 @@ Fix the mismatch before approving!`,
         success: false,
         message: `SECURITY BLOCKED: Wrong travellers detected!
 
-Pending Approval:
+User requested:
 → ${pendingNames.join("\n→ ") || "None"}
 
-But Request Contains:
+But Admin worked:
 → ${requestedNames.join("\n→ ") || "None"}
 
-Approval denied!`,
+Kindly reject this and raise new request`,
         details: {
           pendingTravellers: pendingTravellers.map((t) => ({
             name: getName(t),
