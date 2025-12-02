@@ -1287,6 +1287,7 @@ const updateTourBalance = async (req, res) => {
     });
   }
 };
+
 const updateTourAdvance = async (req, res) => {
   try {
     const { bookingId } = req.params;
@@ -1319,7 +1320,7 @@ const updateTourAdvance = async (req, res) => {
     for (const update of updates) {
       const { remarks, amount } = update;
 
-      if (amount === undefined || typeof amount !== "number") {
+      if (amount === undefined || typeof amount !== "number" || isNaN(amount)) {
         return res.status(400).json({
           success: false,
           message: "Each update must include a valid 'amount' (number)",
@@ -1351,7 +1352,7 @@ const updateTourAdvance = async (req, res) => {
       });
     }
 
-    // NEW BLOCK: If advance is already marked as PAID → BLOCK COMPLETELY
+    // BLOCK: If advance is already marked as PAID → BLOCK COMPLETELY
     if (booking.payment.advance.paid === true) {
       return res.status(400).json({
         success: false,
@@ -1395,7 +1396,7 @@ const updateTourAdvance = async (req, res) => {
       });
     }
 
-    // --- APPLY UPDATES: Shift from Advance → Balance ---
+    // --- APPLY UPDATES: Shift from Advance to Balance ---
     for (const update of updates) {
       const { remarks, amount } = update;
 
@@ -1418,9 +1419,17 @@ const updateTourAdvance = async (req, res) => {
       });
     }
 
+    // CRITICAL FIX: Tell Mongoose that the array was modified
+    booking.markModified("advanceAdminRemarks");
+
+    // Also mark nested payment fields as modified (good practice)
+    booking.markModified("payment.advance.amount");
+    booking.markModified("payment.balance");
+
     // Mark trip as completed
     booking.isTripCompleted = true;
 
+    // Save the booking
     await booking.save();
 
     return res.status(200).json({
@@ -1444,7 +1453,6 @@ const updateTourAdvance = async (req, res) => {
     });
   }
 };
-
 const updateModifyReceipt = async (req, res) => {
   try {
     const { bookingId, tourId } = req.body;
