@@ -20,7 +20,8 @@ import {
   updateBookingBalance,
   getManagedBookingsHistory,
   updateTourAdvance,
-  viewTourAdvance, // Ensure this is imported
+  viewTourAdvance,
+  allotRooms, // Ensure this is imported
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
@@ -55,4 +56,5 @@ tourRouter.post(
   updateBookingBalance
 );
 tourRouter.get("/managed-bookings/history", getManagedBookingsHistory);
+tourRouter.get("/allot-rooms/:tourId", allotRooms);
 export default tourRouter;

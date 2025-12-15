@@ -5,7 +5,7 @@ import { v2 as cloudinary } from "cloudinary";
 import tourBookingModel from "../models/tourBookingmodel.js";
 import cancellationModel from "../models/cancellationModel.js";
 import manageBookingModel from "../models/manageBookingModel.js";
-
+import tourRoomAllocationModel from "../models/roomModel.js";
 import mongoose from "mongoose"; // Added missing import
 
 const changeTourAvailability = async (req, res) => {
@@ -2042,6 +2042,365 @@ const getManagedBookingsHistory = async (req, res) => {
   }
 };
 
+const allotRooms = async (req, res) => {
+  try {
+    const { tourId } = req.params;
+    if (!tourId || !mongoose.Types.ObjectId.isValid(tourId)) {
+      return res.status(400).json({ error: "Valid tourId is required" });
+    }
+
+    const objectTourId = new mongoose.Types.ObjectId(tourId);
+
+    const bookings = await tourBookingModel
+      .find({
+        tourId: objectTourId,
+        "cancelled.byAdmin": false,
+        "cancelled.byTraveller": false,
+      })
+      .lean();
+
+    if (bookings.length === 0) {
+      return res.json({
+        tourId,
+        unpaidGuests: [],
+        roomAllocations: [],
+        message: "No active bookings found for this tour.",
+      });
+    }
+
+    const paidBookings = bookings.filter(
+      (b) => b.payment.advance.paid && b.payment.advance.paymentVerified
+    );
+    const unpaidBookings = bookings.filter(
+      (b) => !b.payment.advance.paid || !b.payment.advance.paymentVerified
+    );
+
+    const unpaidGuests = [];
+    unpaidBookings.forEach((booking) => {
+      booking.travellers.forEach((traveller) => {
+        if (!traveller.cancelled.byAdmin && !traveller.cancelled.byTraveller) {
+          unpaidGuests.push({
+            bookingId: booking._id.toString(),
+            ...getBasicTravelerInfo(traveller),
+          });
+        }
+      });
+    });
+
+    // Temporary array to collect raw room entries (before grouping)
+    const rawRoomEntries = [];
+
+    // Initialize single travellers pool early (for adding from multi-bookings)
+    const singleTravellers = [];
+    const travellerToMobile = new Map();
+
+    // === Multi-traveller bookings ===
+    for (const booking of paidBookings.filter((b) => b.travellers.length > 1)) {
+      const activeTravellers = booking.travellers.filter(
+        (t) => !t.cancelled.byAdmin && !t.cancelled.byTraveller
+      );
+
+      const adults = activeTravellers.filter(
+        (t) => t.sharingType === "double" || t.sharingType === "triple"
+      );
+      const children = activeTravellers.filter(
+        (t) => t.sharingType === "withBerth" || t.sharingType === "withoutBerth"
+      );
+
+      const doubleAdults = adults.filter((t) => t.sharingType === "double");
+      const tripleAdults = adults.filter((t) => t.sharingType === "triple");
+
+      let rooms = [];
+
+      // Special logic: If exactly 2 travellers requesting triple sharing
+      if (
+        adults.length === 2 &&
+        doubleAdults.length === 0 &&
+        tripleAdults.length === 2
+      ) {
+        // Do not allocate room - add to single pool for same-gender triple
+        tripleAdults.forEach((traveller) => {
+          singleTravellers.push(traveller);
+          travellerToMobile.set(traveller, booking.contact.mobile);
+        });
+
+        // If children exist, add to first parent's "room" - but since pooling, handle children separately or add to pool?
+        // For simplicity, add children to pool as well (assuming they can be pooled, adjust if needed)
+        children.forEach((child) => {
+          singleTravellers.push(child);
+          travellerToMobile.set(child, booking.contact.mobile);
+        });
+
+        continue; // Skip room allocation for this booking
+      }
+
+      // Special Case: Exactly 4 adults requesting triple → make one QUAD room
+      if (tripleAdults.length === 4 && doubleAdults.length === 0) {
+        rooms.push({
+          sharingType: "quad",
+          occupants: tripleAdults.map((t) =>
+            createOccupant(t, booking.contact.mobile)
+          ),
+        });
+      }
+      // Normal processing for other cases
+      else {
+        const allAdults = [...doubleAdults, ...tripleAdults];
+        let adultIndex = 0;
+
+        while (adultIndex < allAdults.length) {
+          const sharing = allAdults[adultIndex].sharingType;
+          const size = sharing === "double" ? 2 : 3;
+          const group = allAdults.slice(adultIndex, adultIndex + size);
+
+          rooms.push({
+            sharingType: sharing,
+            occupants: group.map((t) =>
+              createOccupant(t, booking.contact.mobile)
+            ),
+          });
+          adultIndex += size;
+        }
+      }
+
+      // Add children to the first room (parents' room)
+      if (children.length > 0 && rooms.length > 0) {
+        const primaryRoom = rooms[0];
+        children.forEach((child) => {
+          primaryRoom.occupants.push(
+            createOccupant(child, booking.contact.mobile)
+          );
+        });
+
+        // Auto-upgrade room type based on total occupants in primary room
+        const totalInPrimary = primaryRoom.occupants.length;
+        if (totalInPrimary > 3) {
+          primaryRoom.sharingType = "quad";
+        } else if (totalInPrimary > 2) {
+          primaryRoom.sharingType = "triple";
+        }
+      }
+      // Rare case: Only children in the booking
+      else if (children.length > 0 && rooms.length === 0) {
+        const childCount = children.length;
+        const sharing =
+          childCount === 1
+            ? "single"
+            : childCount === 2
+            ? "double"
+            : childCount === 3
+            ? "triple"
+            : "quad";
+
+        rooms.push({
+          sharingType: sharing,
+          occupants: children.map((c) =>
+            createOccupant(c, booking.contact.mobile)
+          ),
+        });
+      }
+
+      if (rooms.length > 0) {
+        rawRoomEntries.push({
+          bookingId: booking._id,
+          contactMobile: booking.contact.mobile,
+          rooms: assignRoomNumbers(rooms),
+        });
+      }
+    }
+
+    // === Single traveller pooling (now includes pooled 2-triple bookings) ===
+    paidBookings
+      .filter((b) => b.travellers.length === 1)
+      .forEach((booking) => {
+        const traveller = booking.travellers[0];
+        if (
+          !traveller.cancelled.byAdmin &&
+          !traveller.cancelled.byTraveller &&
+          (traveller.sharingType === "double" ||
+            traveller.sharingType === "triple")
+        ) {
+          singleTravellers.push(traveller);
+          travellerToMobile.set(traveller, booking.contact.mobile);
+        }
+      });
+
+    const singleGroups = {};
+    singleTravellers.forEach((t) => {
+      const key = `${t.sharingType}-${t.gender}`;
+      if (!singleGroups[key]) singleGroups[key] = [];
+      singleGroups[key].push(t);
+    });
+
+    for (const key in singleGroups) {
+      const [sharingType] = key.split("-");
+      const group = singleGroups[key];
+      let rooms = createRooms(group, sharingType);
+
+      rooms = rooms.map((room) => ({
+        ...room,
+        occupants: room.occupants.map((occ) => {
+          const cleaned = { ...occ };
+          delete cleaned._originalTravellerRef;
+          cleaned.mobile =
+            travellerToMobile.get(occ._originalTravellerRef) || "0000000000";
+          return cleaned;
+        }),
+      }));
+
+      if (rooms.length > 0 && group.length > 0) {
+        const firstTraveller = group[0];
+        const sampleBooking = paidBookings.find((b) =>
+          b.travellers.some((t) => t === firstTraveller)
+        );
+        if (sampleBooking) {
+          rawRoomEntries.push({
+            bookingId: sampleBooking._id,
+            contactMobile: sampleBooking.contact.mobile,
+            rooms: assignRoomNumbers(rooms),
+          });
+        }
+      }
+    }
+
+    // === GROUP BY CONTACT MOBILE ===
+    const mobileMap = new Map();
+
+    for (const entry of rawRoomEntries) {
+      const mobile = entry.contactMobile;
+      if (!mobileMap.has(mobile)) {
+        mobileMap.set(mobile, {
+          contactMobile: mobile,
+          bookingIds: new Set(),
+          rooms: [],
+        });
+      }
+      const group = mobileMap.get(mobile);
+      group.bookingIds.add(entry.bookingId.toString());
+      group.rooms.push(...entry.rooms);
+    }
+
+    // Convert to array and re-assign sequential room numbers PER MOBILE GROUP
+    const groupedByMobile = Array.from(mobileMap.values())
+      .map((group) => ({
+        contactMobile: group.contactMobile,
+        bookingIds: Array.from(group.bookingIds),
+        rooms: group.rooms.map((room, i) => ({
+          ...room,
+          roomNumber: i + 1, // Sequential per family/group
+        })),
+      }))
+      .sort((a, b) => a.contactMobile.localeCompare(b.contactMobile));
+
+    // Prepare old format for backward compatibility
+    const bookingRoomEntries = rawRoomEntries.map((entry) => ({
+      bookingId: entry.bookingId,
+      contactMobile: entry.contactMobile,
+      rooms: entry.rooms,
+    }));
+
+    // Save to DB
+    await tourRoomAllocationModel.findOneAndUpdate(
+      { tourId: objectTourId },
+      {
+        tourId: objectTourId,
+        groupedByMobile,
+        bookings: bookingRoomEntries,
+        grouped: true,
+        isFinalized: false,
+      },
+      { upsert: true, new: true }
+    );
+
+    // Response: Flattened room list with mobile grouping info
+    const responseRooms = groupedByMobile.flatMap((group) =>
+      group.rooms.map((room) => ({
+        contactMobile: group.contactMobile,
+        bookingIds: group.bookingIds,
+        roomNumber: room.roomNumber,
+        sharingType: room.sharingType,
+        occupants: room.occupants.map((o) => ({
+          firstName: o.firstName,
+          lastName: o.lastName,
+          gender: o.gender,
+        })),
+      }))
+    );
+
+    res.json({
+      tourId,
+      unpaidGuests,
+      roomAllocations: responseRooms,
+      groupedByMobile,
+      totalRooms: responseRooms.length,
+      totalGroups: groupedByMobile.length,
+      saved: true,
+      message:
+        "Room allocation generated and grouped by contact mobile successfully. Quad sharing applied where applicable.",
+    });
+  } catch (error) {
+    console.error("Room allotment error:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+};
+
+// === Helper Functions ===
+const getBasicTravelerInfo = (t) => ({
+  title: t.title,
+  firstName: t.firstName,
+  lastName: t.lastName,
+  age: t.age,
+  gender: t.gender,
+  sharingType: t.sharingType,
+});
+
+const createOccupant = (traveller, mobile) => ({
+  firstName: traveller.firstName,
+  lastName: traveller.lastName,
+  gender: traveller.gender,
+  mobile,
+  _originalTravellerRef: traveller,
+});
+
+const createRooms = (travellers, sharingType) => {
+  if (travellers.length === 0) return [];
+  const capacity = sharingType === "double" ? 2 : 3;
+  const fullRooms = Math.floor(travellers.length / capacity);
+  const remainder = travellers.length % capacity;
+  const rooms = [];
+  let idx = 0;
+
+  for (let i = 0; i < fullRooms; i++) {
+    rooms.push({
+      sharingType,
+      occupants: travellers
+        .slice(idx, idx + capacity)
+        .map((t) => createOccupant(t)),
+    });
+    idx += capacity;
+  }
+
+  if (remainder > 0) {
+    const partial = travellers.slice(idx).map((t) => createOccupant(t));
+    if (fullRooms > 0) {
+      rooms[rooms.length - 1].occupants.push(...partial);
+      if (rooms[rooms.length - 1].occupants.length > capacity) {
+        rooms[rooms.length - 1].sharingType = "triple";
+      }
+    } else {
+      rooms.push({
+        sharingType: remainder === 1 ? "single" : sharingType,
+        occupants: partial,
+      });
+    }
+  }
+  return rooms;
+};
+
+const assignRoomNumbers = (rooms) => {
+  return rooms.map((room, i) => ({ ...room, roomNumber: i + 1 }));
+};
+
 export {
   tourList,
   changeTourAvailability,
@@ -2065,4 +2424,5 @@ export {
   getCancellationsByBooking,
   updateBookingBalance,
   getManagedBookingsHistory,
+  allotRooms,
 };
