@@ -2041,7 +2041,6 @@ const getManagedBookingsHistory = async (req, res) => {
     });
   }
 };
-
 const allotRooms = async (req, res) => {
   try {
     const { tourId } = req.params;
@@ -2233,34 +2232,58 @@ const allotRooms = async (req, res) => {
     });
 
     for (const key in singleGroups) {
-      const [sharingType] = key.split("-");
+      const [sharingType, gender] = key.split("-");
       const group = singleGroups[key];
-      let rooms = createRooms(group, sharingType);
 
-      rooms = rooms.map((room) => ({
-        ...room,
-        occupants: room.occupants.map((occ) => {
+      if (group.length === 0) continue;
+
+      // Sort the group by mobile number to group travellers with the same mobile together
+      group.sort((a, b) => {
+        const mobA = travellerToMobile.get(a) || "0000000000";
+        const mobB = travellerToMobile.get(b) || "0000000000";
+        return mobA.localeCompare(mobB);
+      });
+
+      const rooms = createRooms(group, sharingType);
+
+      rooms.forEach((room) => {
+        // Clean occupants and attach correct individual mobiles
+        const cleanedOccupants = room.occupants.map((occ) => {
           const cleaned = { ...occ };
           delete cleaned._originalTravellerRef;
           cleaned.mobile =
             travellerToMobile.get(occ._originalTravellerRef) || "0000000000";
           return cleaned;
-        }),
-      }));
+        });
 
-      if (rooms.length > 0 && group.length > 0) {
-        const firstTraveller = group[0];
+        // Use first occupant's mobile as key for grouping (or use POOLED- prefix to separate)
+        const firstOccupantRef = room.occupants[0]._originalTravellerRef;
+        const roomMobileKey =
+          travellerToMobile.get(firstOccupantRef) || "0000000000";
+
+        // Optional: Use this to visually separate pooled rooms
+        // const roomMobileKey = `POOLED-${gender}-${sharingType}-${Date.now()}-${Math.random()}`;
+
+        const cleanedRoom = {
+          ...room,
+          occupants: cleanedOccupants,
+        };
+
+        // Find a valid booking ID (any one from the room)
         const sampleBooking = paidBookings.find((b) =>
-          b.travellers.some((t) => t === firstTraveller)
+          b.travellers.some((t) =>
+            room.occupants.some((occ) => occ._originalTravellerRef === t)
+          )
         );
+
         if (sampleBooking) {
           rawRoomEntries.push({
             bookingId: sampleBooking._id,
-            contactMobile: sampleBooking.contact.mobile,
-            rooms: assignRoomNumbers(rooms),
+            contactMobile: roomMobileKey,
+            rooms: assignRoomNumbers([cleanedRoom]),
           });
         }
-      }
+      });
     }
 
     // === GROUP BY CONTACT MOBILE ===
@@ -2299,45 +2322,80 @@ const allotRooms = async (req, res) => {
       rooms: entry.rooms,
     }));
 
-    // Save to DB
-    await tourRoomAllocationModel.findOneAndUpdate(
-      { tourId: objectTourId },
-      {
-        tourId: objectTourId,
-        groupedByMobile,
-        bookings: bookingRoomEntries,
-        grouped: true,
-        isFinalized: false,
-      },
-      { upsert: true, new: true }
-    );
-
-    // Response: Flattened room list with mobile grouping info
-    const responseRooms = groupedByMobile.flatMap((group) =>
-      group.rooms.map((room) => ({
-        contactMobile: group.contactMobile,
-        bookingIds: group.bookingIds,
-        roomNumber: room.roomNumber,
-        sharingType: room.sharingType,
-        occupants: room.occupants.map((o) => ({
-          firstName: o.firstName,
-          lastName: o.lastName,
-          gender: o.gender,
-        })),
-      }))
-    );
-
-    res.json({
-      tourId,
-      unpaidGuests,
-      roomAllocations: responseRooms,
-      groupedByMobile,
-      totalRooms: responseRooms.length,
-      totalGroups: groupedByMobile.length,
-      saved: true,
-      message:
-        "Room allocation generated and grouped by contact mobile successfully. Quad sharing applied where applicable.",
+    // Check existing allocation
+    const existingAllocation = await tourRoomAllocationModel.findOne({
+      tourId: objectTourId,
     });
+
+    if (existingAllocation && existingAllocation.isFinalized) {
+      // Use existing data for allocations, but fresh unpaidGuests
+      const existingGroupedByMobile = existingAllocation.groupedByMobile || [];
+      const existingResponseRooms = existingGroupedByMobile.flatMap((group) =>
+        group.rooms.map((room) => ({
+          contactMobile: group.contactMobile,
+          bookingIds: group.bookingIds,
+          roomNumber: room.roomNumber,
+          sharingType: room.sharingType,
+          occupants: room.occupants.map((o) => ({
+            firstName: o.firstName,
+            lastName: o.lastName,
+            gender: o.gender,
+          })),
+        }))
+      );
+
+      return res.json({
+        tourId,
+        unpaidGuests,
+        roomAllocations: existingResponseRooms,
+        groupedByMobile: existingGroupedByMobile,
+        totalRooms: existingResponseRooms.length,
+        totalGroups: existingGroupedByMobile.length,
+        saved: false,
+        message:
+          "Room allocation is finalized. Displaying existing allocation with updated unpaid guests.",
+      });
+    } else {
+      // Save or update with new data
+      await tourRoomAllocationModel.findOneAndUpdate(
+        { tourId: objectTourId },
+        {
+          tourId: objectTourId,
+          groupedByMobile,
+          bookings: bookingRoomEntries,
+          grouped: true,
+          isFinalized: false,
+        },
+        { upsert: true, new: true }
+      );
+
+      // Response: Flattened room list with mobile grouping info
+      const responseRooms = groupedByMobile.flatMap((group) =>
+        group.rooms.map((room) => ({
+          contactMobile: group.contactMobile,
+          bookingIds: group.bookingIds,
+          roomNumber: room.roomNumber,
+          sharingType: room.sharingType,
+          occupants: room.occupants.map((o) => ({
+            firstName: o.firstName,
+            lastName: o.lastName,
+            gender: o.gender,
+          })),
+        }))
+      );
+
+      res.json({
+        tourId,
+        unpaidGuests,
+        roomAllocations: responseRooms,
+        groupedByMobile,
+        totalRooms: responseRooms.length,
+        totalGroups: groupedByMobile.length,
+        saved: true,
+        message:
+          "Room allocation generated and grouped by contact mobile successfully. Quad sharing applied where applicable.",
+      });
+    }
   } catch (error) {
     console.error("Room allotment error:", error);
     res.status(500).json({ error: error.message || "Internal server error" });
@@ -2362,6 +2420,13 @@ const createOccupant = (traveller, mobile) => ({
   _originalTravellerRef: traveller,
 });
 
+const getSharingTypeFromSize = (size) => {
+  if (size === 1) return "single";
+  if (size === 2) return "double";
+  if (size === 3) return "triple";
+  return "quad"; // Though not used in pooling remainders
+};
+
 const createRooms = (travellers, sharingType) => {
   if (travellers.length === 0) return [];
   const capacity = sharingType === "double" ? 2 : 3;
@@ -2382,17 +2447,11 @@ const createRooms = (travellers, sharingType) => {
 
   if (remainder > 0) {
     const partial = travellers.slice(idx).map((t) => createOccupant(t));
-    if (fullRooms > 0) {
-      rooms[rooms.length - 1].occupants.push(...partial);
-      if (rooms[rooms.length - 1].occupants.length > capacity) {
-        rooms[rooms.length - 1].sharingType = "triple";
-      }
-    } else {
-      rooms.push({
-        sharingType: remainder === 1 ? "single" : sharingType,
-        occupants: partial,
-      });
-    }
+    const remSharing = getSharingTypeFromSize(remainder);
+    rooms.push({
+      sharingType: remSharing,
+      occupants: partial,
+    });
   }
   return rooms;
 };
@@ -2400,7 +2459,6 @@ const createRooms = (travellers, sharingType) => {
 const assignRoomNumbers = (rooms) => {
   return rooms.map((room, i) => ({ ...room, roomNumber: i + 1 }));
 };
-
 export {
   tourList,
   changeTourAvailability,
