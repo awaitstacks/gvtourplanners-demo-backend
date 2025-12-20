@@ -2578,8 +2578,8 @@ const allotRooms = async (req, res) => {
           occupants: travellers.map((t) => createOccupant(t, mobile)),
         });
       }
-      // === Mixed sharing (e.g., some double, some triple) — allocate as much as possible within group ===
-      else if (!isUniformSharing) {
+      // === Other cases: Mixed or Uniform sharing — allocate full groups only ===
+      else {
         Object.keys(byGender).forEach((gender) => {
           const genderList = byGender[gender];
 
@@ -2608,7 +2608,7 @@ const allotRooms = async (req, res) => {
                 });
                 i += capacity;
               } else {
-                // Remainder < capacity → leave for global pooling (do not allocate partial here)
+                // Remainder < capacity → leave for global pooling
                 i += remaining;
               }
             }
@@ -2635,57 +2635,8 @@ const allotRooms = async (req, res) => {
           });
         }
       }
-      // === Uniform sharing — only allocate full groups, leave remainders for pooling ===
-      else if (isUniformSharing) {
-        const sharingType = sharingTypes[0];
-        const capacity = sharingType === "double" ? 2 : 3;
 
-        Object.keys(byGender).forEach((gender) => {
-          const genderList = byGender[gender].filter(
-            (t) => t.sharingType === sharingType
-          );
-
-          let i = 0;
-          while (i < genderList.length) {
-            const remaining = genderList.length - i;
-            if (remaining >= capacity) {
-              // Full group → allocate within this mobile group
-              rooms.push({
-                sharingType,
-                occupants: genderList
-                  .slice(i, i + capacity)
-                  .map((t) => createOccupant(t, mobile)),
-              });
-              i += capacity;
-            } else {
-              // Remainder → leave for global pooling
-              i += remaining;
-            }
-          }
-        });
-
-        // Children handling (same as above)
-        const children = travellers.filter(
-          (t) =>
-            t.sharingType === "withBerth" || t.sharingType === "withoutBerth"
-        );
-        if (children.length > 0 && rooms.length > 0) {
-          children.forEach((child) => {
-            const childGenderRoom = rooms.find((r) =>
-              r.occupants.some((o) => o.gender === child.gender)
-            );
-            const targetRoom = childGenderRoom || rooms[0];
-            targetRoom.occupants.push(createOccupant(child, mobile));
-          });
-          rooms.forEach((room) => {
-            const total = room.occupants.length;
-            if (total > 3) room.sharingType = "quad";
-            else if (total > 2) room.sharingType = "triple";
-          });
-        }
-      }
-
-      // Push only if full rooms were allocated
+      // Push only full rooms
       if (rooms.length > 0) {
         rawRoomEntries.push({
           bookingId: bookingIds[0],
@@ -2701,7 +2652,7 @@ const allotRooms = async (req, res) => {
       }
     }
 
-    // === Step 3: Global pooling ONLY for unallocated travellers ===
+    // === Step 3: Global pooling for unallocated travellers (remainders & singles) ===
     const remainderPool = {};
 
     paidBookings.forEach((booking) => {
@@ -2762,7 +2713,7 @@ const allotRooms = async (req, res) => {
       }
     });
 
-    // === Step 4: Final single room reduction (same gender only) ===
+    // === Step 4: Reduce single rooms by pairing triple single with double single (same gender) ===
     const singleRooms = [];
     rawRoomEntries.forEach((entry, entryIndex) => {
       entry.rooms = entry.rooms.filter((room) => {
@@ -2809,6 +2760,7 @@ const allotRooms = async (req, res) => {
         rawRoomEntries[tripleSingle.entryIndex].rooms.push(newRoom);
       }
 
+      // Remaining singles stay single — no further pairing
       tripleSingles[gender].forEach((r) =>
         rawRoomEntries[r.entryIndex].rooms.push(r.room)
       );
@@ -2908,7 +2860,7 @@ const allotRooms = async (req, res) => {
       totalGroups: groupedByMobile.length,
       saved: true,
       message:
-        "Room allotment completed successfully (proper groups not mixed with other bookings).",
+        "Room allotment completed successfully (singles remain single if no pair available).",
     });
   } catch (error) {
     console.error("Room allotment error:", error);
