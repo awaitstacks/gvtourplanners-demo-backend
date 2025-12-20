@@ -2523,15 +2523,20 @@ const allotRooms = async (req, res) => {
       mobile,
       travellerId: t._id?.toString(),
       sharingType: t.sharingType,
+      originalIndex: t.originalIndex, // Preserve original order
     });
 
     // === Step 1: Group by mobile number (Family/Friends - Case 6) ===
-    const mobileGroups = new Map(); // mobile → array of {traveller, bookingId}
+    const mobileGroups = new Map();
 
     paidBookings.forEach((booking) => {
       const active = booking.travellers.filter(
         (t) => !t.cancelled.byAdmin && !t.cancelled.byTraveller
       );
+      // Preserve original order in travellers array
+      active.forEach((t, index) => {
+        t.originalIndex = index; // Add original index for sorting later
+      });
       const mobile = booking.contact.mobile;
 
       if (!mobileGroups.has(mobile)) mobileGroups.set(mobile, []);
@@ -2543,8 +2548,13 @@ const allotRooms = async (req, res) => {
       });
     });
 
-    // === Step 2: Process each mobile group (same mobile = same family/group) ===
+    // === Step 2: Process each mobile group ===
     for (const [mobile, groupItems] of mobileGroups) {
+      // Sort groupItems by original traveller index to maintain order
+      groupItems.sort(
+        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex
+      );
+
       const travellers = groupItems.map((i) => i.traveller);
       const bookingIds = [...new Set(groupItems.map((i) => i.bookingId))];
 
@@ -2555,7 +2565,6 @@ const allotRooms = async (req, res) => {
         sharingTypes.length === 1 &&
         ["double", "triple"].includes(sharingTypes[0]);
 
-      // Husband & Wife: exactly 2 travellers, opposite gender, both double sharing
       const isMarriedCouple =
         travellers.length === 2 &&
         travellers[0].gender !== travellers[1].gender &&
@@ -2563,70 +2572,53 @@ const allotRooms = async (req, res) => {
 
       const rooms = [];
 
-      // Group travellers by gender (except for couples)
-      const byGender = {};
-      travellers.forEach((t) => {
-        const key = t.gender;
-        if (!byGender[key]) byGender[key] = [];
-        byGender[key].push(t);
-      });
-
-      // === Husband & Wife Rule: Always together in one double room ===
+      // === Husband & Wife Rule ===
       if (isMarriedCouple) {
         rooms.push({
           sharingType: "double",
           occupants: travellers.map((t) => createOccupant(t, mobile)),
         });
       }
-      // === Mixed or Uniform sharing: Allocate ALL possible full rooms within the group ===
+      // === Other cases: Mixed or Uniform sharing — allocate full groups in original order ===
       else {
-        Object.keys(byGender).forEach((gender) => {
-          const genderList = byGender[gender];
-
-          const bySharing = {};
-          genderList.forEach((t) => {
-            const key = t.sharingType;
-            if (!bySharing[key]) bySharing[key] = [];
-            bySharing[key].push(t);
-          });
-
-          Object.keys(bySharing).forEach((type) => {
-            if (!["double", "triple"].includes(type)) return;
-
-            const list = bySharing[type];
-            const capacity = type === "double" ? 2 : 3;
-
-            let i = 0;
-            while (i < list.length) {
-              const remaining = list.length - i;
-              if (remaining >= capacity) {
-                // Full group → allocate within this group
-                const group = list.slice(i, i + capacity);
-                rooms.push({
-                  sharingType: type,
-                  occupants: group.map((t) => createOccupant(t, mobile)),
-                });
-                i += capacity;
-              } else {
-                // Remainder < capacity → leave for global pooling (do NOT allocate partial)
-                i += remaining;
-              }
-            }
-          });
+        // Group by sharing type while maintaining order
+        const bySharing = {};
+        travellers.forEach((t) => {
+          const key = t.sharingType;
+          if (!bySharing[key]) bySharing[key] = [];
+          bySharing[key].push(t);
         });
 
-        // Add children to first adult room (same gender preferred)
+        Object.keys(bySharing).forEach((type) => {
+          if (!["double", "triple"].includes(type)) return;
+
+          const list = bySharing[type];
+          const capacity = type === "double" ? 2 : 3;
+
+          let i = 0;
+          while (i < list.length) {
+            const remaining = list.length - i;
+            if (remaining >= capacity) {
+              const group = list.slice(i, i + capacity);
+              rooms.push({
+                sharingType: type,
+                occupants: group.map((t) => createOccupant(t, mobile)),
+              });
+              i += capacity;
+            } else {
+              i += remaining; // Leave remainder
+            }
+          }
+        });
+
+        // Add children in original order to first adult room
         const children = travellers.filter(
           (t) =>
             t.sharingType === "withBerth" || t.sharingType === "withoutBerth"
         );
         if (children.length > 0 && rooms.length > 0) {
           children.forEach((child) => {
-            const childGenderRoom = rooms.find((r) =>
-              r.occupants.some((o) => o.gender === child.gender)
-            );
-            const targetRoom = childGenderRoom || rooms[0];
-            targetRoom.occupants.push(createOccupant(child, mobile));
+            rooms[0].occupants.push(createOccupant(child, mobile));
           });
           rooms.forEach((room) => {
             const total = room.occupants.length;
@@ -2636,7 +2628,6 @@ const allotRooms = async (req, res) => {
         }
       }
 
-      // Push allocated full rooms
       if (rooms.length > 0) {
         rawRoomEntries.push({
           bookingId: bookingIds[0],
@@ -2652,11 +2643,11 @@ const allotRooms = async (req, res) => {
       }
     }
 
-    // === Step 3: Global pooling ONLY for unallocated remainders ===
+    // === Step 3: Global pooling for remainders (preserve order within same sharing/gender) ===
     const remainderPool = {};
 
     paidBookings.forEach((booking) => {
-      booking.travellers.forEach((t) => {
+      booking.travellers.forEach((t, index) => {
         if (
           !t.cancelled.byAdmin &&
           !t.cancelled.byTraveller &&
@@ -2664,6 +2655,7 @@ const allotRooms = async (req, res) => {
           !allocatedTravellerIds.has(t._id.toString()) &&
           ["double", "triple"].includes(t.sharingType)
         ) {
+          t.originalIndex = index; // Preserve order
           const key = `${t.sharingType}-${t.gender}`;
           if (!remainderPool[key]) remainderPool[key] = [];
           remainderPool[key].push({
@@ -2678,10 +2670,13 @@ const allotRooms = async (req, res) => {
     Object.keys(remainderPool).forEach((key) => {
       const [sharingType, gender] = key.split("-");
       const capacity = sharingType === "double" ? 2 : 3;
-      const list = remainderPool[key];
+      let list = remainderPool[key];
       if (list.length === 0) return;
 
-      list.sort((a, b) => a.mobile.localeCompare(b.mobile));
+      // Sort by original traveller index to keep order as much as possible
+      list.sort(
+        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex
+      );
 
       const rooms = [];
       let i = 0;
@@ -2760,7 +2755,6 @@ const allotRooms = async (req, res) => {
         rawRoomEntries[tripleSingle.entryIndex].rooms.push(newRoom);
       }
 
-      // Remaining singles stay single — no further pairing
       tripleSingles[gender].forEach((r) =>
         rawRoomEntries[r.entryIndex].rooms.push(r.room)
       );
@@ -2860,7 +2854,7 @@ const allotRooms = async (req, res) => {
       totalGroups: groupedByMobile.length,
       saved: true,
       message:
-        "Room allotment completed successfully (groups not mixed unless necessary).",
+        "Room allotment completed successfully (travellers in original order).",
     });
   } catch (error) {
     console.error("Room allotment error:", error);
