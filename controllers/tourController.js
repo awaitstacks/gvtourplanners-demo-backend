@@ -2543,7 +2543,7 @@ const allotRooms = async (req, res) => {
       });
     });
 
-    // === Step 2: Process each mobile group ===
+    // === Step 2: Process each mobile group (same mobile = same family/group) ===
     for (const [mobile, groupItems] of mobileGroups) {
       const travellers = groupItems.map((i) => i.traveller);
       const bookingIds = [...new Set(groupItems.map((i) => i.bookingId))];
@@ -2578,7 +2578,7 @@ const allotRooms = async (req, res) => {
           occupants: travellers.map((t) => createOccupant(t, mobile)),
         });
       }
-      // === Other cases: Mixed or Uniform sharing — allocate full groups only ===
+      // === Mixed or Uniform sharing: Allocate ALL possible full rooms within the group ===
       else {
         Object.keys(byGender).forEach((gender) => {
           const genderList = byGender[gender];
@@ -2600,7 +2600,7 @@ const allotRooms = async (req, res) => {
             while (i < list.length) {
               const remaining = list.length - i;
               if (remaining >= capacity) {
-                // Full group → allocate within this mobile group
+                // Full group → allocate within this group
                 const group = list.slice(i, i + capacity);
                 rooms.push({
                   sharingType: type,
@@ -2608,7 +2608,7 @@ const allotRooms = async (req, res) => {
                 });
                 i += capacity;
               } else {
-                // Remainder < capacity → leave for global pooling
+                // Remainder < capacity → leave for global pooling (do NOT allocate partial)
                 i += remaining;
               }
             }
@@ -2636,7 +2636,7 @@ const allotRooms = async (req, res) => {
         }
       }
 
-      // Push only full rooms
+      // Push allocated full rooms
       if (rooms.length > 0) {
         rawRoomEntries.push({
           bookingId: bookingIds[0],
@@ -2652,7 +2652,7 @@ const allotRooms = async (req, res) => {
       }
     }
 
-    // === Step 3: Global pooling for unallocated travellers (remainders & singles) ===
+    // === Step 3: Global pooling ONLY for unallocated remainders ===
     const remainderPool = {};
 
     paidBookings.forEach((booking) => {
@@ -2713,7 +2713,7 @@ const allotRooms = async (req, res) => {
       }
     });
 
-    // === Step 4: Reduce single rooms by pairing triple single with double single (same gender) ===
+    // === Step 4: Final single room reduction (same gender only) ===
     const singleRooms = [];
     rawRoomEntries.forEach((entry, entryIndex) => {
       entry.rooms = entry.rooms.filter((room) => {
@@ -2860,7 +2860,7 @@ const allotRooms = async (req, res) => {
       totalGroups: groupedByMobile.length,
       saved: true,
       message:
-        "Room allotment completed successfully (singles remain single if no pair available).",
+        "Room allotment completed successfully (groups not mixed unless necessary).",
     });
   } catch (error) {
     console.error("Room allotment error:", error);
