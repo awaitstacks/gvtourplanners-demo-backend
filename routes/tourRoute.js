@@ -57,4 +57,5 @@ tourRouter.post(
 );
 tourRouter.get("/managed-bookings/history", getManagedBookingsHistory);
 tourRouter.get("/allot-rooms/:tourId", allotRooms);
+
 export default tourRouter;

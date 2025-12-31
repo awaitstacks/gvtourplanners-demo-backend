@@ -9,6 +9,7 @@ import {
   paymentRazorpay,
   verifyRazorpay,
   cancelTraveller,
+  googleSignIn,
 } from "../controllers/userController.js";
 import authUser from "../middlewares/authUser.js";
 import { upload } from "../middlewares/multer.js";
@@ -32,5 +33,6 @@ userRouter.post("/cancel-traveller", authUser, cancelTraveller);
 
 userRouter.post("/payment-razorpay", authUser, paymentRazorpay);
 userRouter.post("/verifyRazorpay", authUser, verifyRazorpay);
+userRouter.post("/google-signin", googleSignIn);
 
 export default userRouter;

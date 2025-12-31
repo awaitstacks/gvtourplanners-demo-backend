@@ -1,9 +1,8 @@
-import validator from "validator";
 import mongoose from "mongoose";
 
-import bcrypt from "bcrypt";
 import { v2 as cloudinary } from "cloudinary";
 import jwt from "jsonwebtoken";
+
 import tourModel from "../models/tourModel.js";
 import userModel from "../models/userModel.js";
 

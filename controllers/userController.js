@@ -4,12 +4,74 @@ import userModel from "../models/userModel.js";
 import tourModel from "../models/tourModel.js";
 import jwt from "jsonwebtoken";
 import { v2 as cloudinary } from "cloudinary";
-
+import { verifyGoogleToken } from "../middlewares/googleUserAuth.js";
 import razorpay from "razorpay";
 import crypto from "crypto";
 import tourBookingModel from "../models/tourBookingmodel.js";
-//API to register user
 
+// API for Google Sign-In / Sign-Up
+const googleSignIn = async (req, res) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({
+        success: false,
+        message: "Google token is required",
+      });
+    }
+
+    // Verify the Google token
+    const payload = await verifyGoogleToken(idToken);
+
+    if (!payload.email_verified) {
+      return res.status(400).json({
+        success: false,
+        message: "Google email not verified",
+      });
+    }
+
+    const { email, name, picture, sub: googleId } = payload;
+
+    // Check if user already exists by email
+    let user = await userModel.findOne({ email });
+
+    if (!user) {
+      // New user → auto register
+      const hashedPassword = await bcrypt.genSalt(10); // random unused hash
+      user = new userModel({
+        name: name || "Google User",
+        email,
+        password: hashedPassword, // dummy password (never used)
+        image: picture || "",
+        googleId, // optional: store google sub for future reference
+      });
+      await user.save();
+    } else {
+      // Existing user → just log them in (optional: update name/image)
+      user.name = user.name || name;
+      user.image = user.image || picture;
+      await user.save();
+    }
+
+    // Generate JWT token
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "30d",
+    });
+
+    res.json({
+      success: true,
+      token,
+      message: "Google login successful",
+    });
+  } catch (error) {
+    console.error("Google Sign-In Error:", error);
+    res.status(401).json({
+      success: false,
+      message: "Google authentication failed",
+    });
+  }
+};
 const registerUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -645,6 +707,7 @@ const verifyRazorpay = async (req, res) => {
     });
   }
 };
+
 export {
   registerUser,
   loginUser,
@@ -655,4 +718,5 @@ export {
   cancelTraveller,
   paymentRazorpay,
   verifyRazorpay,
+  googleSignIn,
 };

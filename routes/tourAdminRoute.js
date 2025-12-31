@@ -60,4 +60,5 @@ touradminRouter.post(
   addMissingFieldsToAllBookings
 );
 touradminRouter.get("/pending-approvals", authAdmin, getPendingApprovals);
+
 export default touradminRouter;
