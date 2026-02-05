@@ -7,13 +7,26 @@ const CancelRule =
   mongoose.models.cancelrulemodel || mongoose.model("cancelrulemodel");
 
 // ---------- HELPER FUNCTIONS (Unchanged) ----------
+// const daysBetween = (dateA, dateB) => {
+//   const msPerDay = 1000 * 60 * 60 * 24;
+//   return Math.floor(
+//     (Date.UTC(dateB.getFullYear(), dateB.getMonth(), dateB.getDate()) -
+//       Date.UTC(dateA.getFullYear(), dateA.getMonth(), dateA.getDate())) /
+//       msPerDay
+//   );
+// };
+
 const daysBetween = (dateA, dateB) => {
+  if (!dateA || !dateB) return 0;
+  
+  const a = new Date(dateA);
+  const b = new Date(dateB);
+  
+  a.setHours(0, 0, 0, 0);
+  b.setHours(0, 0, 0, 0);
+  
   const msPerDay = 1000 * 60 * 60 * 24;
-  return Math.floor(
-    (Date.UTC(dateB.getFullYear(), dateB.getMonth(), dateB.getDate()) -
-      Date.UTC(dateA.getFullYear(), dateA.getMonth(), dateA.getDate())) /
-      msPerDay
-  );
+  return Math.max(0, Math.floor((b - a) / msPerDay));
 };
 
 const getTravellerAdvanceAmount = (traveller, tourData) => {
@@ -73,7 +86,7 @@ const getTravellerFullPackageCost = (traveller, tourData) => {
 };
 
 const matchPercentage = (daysBefore, tiers = []) => {
-  if (daysBefore > 60) return 0;
+  // if (daysBefore > 60) return 0;
   for (const t of tiers) {
     if (
       daysBefore >= (t.fromDays ?? 0) &&

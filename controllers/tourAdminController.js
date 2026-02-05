@@ -9,6 +9,7 @@ import userModel from "../models/userModel.js";
 import tourBookingModel from "../models/tourBookingmodel.js";
 import cancelRuleModel from "../models/cancelRuleModel.js";
 import cancellationModel from "../models/cancellationModel.js";
+import tourRoomAllocationModel from "../models/roomModel.js";
 import manageBookingModel from "../models/manageBookingModel.js";
 
 const addTour = async (req, res) => {
@@ -1522,6 +1523,582 @@ const getAllUsers = async (req, res) => {
   }
 };
 
+const getBookings = async (req, res) => {
+  try {
+    console.log("Logged-in tour operator ID:", req.tourOperator?._id); // ← add this
+    const bookings = await tourBookingModel
+      .find({})
+      .populate({
+        path: "userId",
+        select: "name email mobile", // Only needed user fields
+      })
+      .populate({
+        path: "tourId",
+        select: "title destination startDate endDate available", // Tour details
+      })
+      .sort({ bookingDate: -1 }) // Latest bookings first
+      .lean(); // Better performance for large data
+      console.log("Total bookings found in DB:", bookings.length); // ← add this
+
+    if (!bookings || bookings.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No bookings found in the system.",
+        total: 0,
+        bookings: [],
+      });
+    }
+
+    // Optional: Add quick stats
+    const totalBookings = bookings.length;
+    const totalEarnings = bookings.reduce((sum, b) => {
+      let earnings = 0;
+      if (b.payment?.advance?.paid) earnings += b.payment.advance.amount || 0;
+      if (b.payment?.balance?.paid) earnings += b.payment.balance.amount || 0;
+      return sum + earnings;
+    }, 0);
+
+    const completedBookings = bookings.filter(b => b.isBookingCompleted).length;
+    const pendingBookings = totalBookings - completedBookings;
+
+    res.status(200).json({
+      success: true,
+      totalBookings,
+      totalEarnings,
+      completedBookings,
+      pendingBookings,
+      bookings,
+    });
+  } catch (error) {
+    console.error("Error in getBookings:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch all bookings",
+      error: error.message,
+    });
+  }
+};
+
+
+const adminBookingsTour = async (req, res) => {
+  try {
+    // Get the tourId from the URL parameter
+    const tourId = req.params.tourId;
+
+    if (!tourId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Tour ID is missing" });
+    }
+
+    const bookings = await tourBookingModel
+      .find({ tourId })
+      .populate({
+        path: "userId",
+        model: "user",
+        select: "-password",
+      })
+      .populate({
+        path: "tourId",
+        model: "tour",
+      });
+
+    res.json({
+      success: true,
+      total: bookings.length,
+      bookings,
+    });
+  } catch (error) {
+    console.error("Error fetching bookings:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+const adminTourList = async (req, res) => {
+  try {
+    const tours = await tourModel
+      .find({})
+      .sort({
+        // 1. lastBookingDate year (descending) – newest year first
+        "lastBookingDate": -1,
+        // 2. same year la irundha createdAt newest first
+        "createdAt": -1
+      })
+      .lean();
+
+    res.json({
+      success: true,
+      total: tours.length,
+      tours,
+    });
+  } catch (error) {
+    console.error("Error in tourList:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch all tours",
+      error: error.message,
+    });
+  }
+};
+
+// Update traveller-specific data in a booking
+const adminUpdateTraveller = async (req, res) => {
+  try {
+    const { bookingId, travellerId, trainSeats, flightSeats, staffRemarks } =
+      req.body;
+
+    const updatedBooking = await tourBookingModel.findOneAndUpdate(
+      { _id: bookingId, "travellers._id": travellerId },
+      {
+        $set: {
+          "travellers.$.trainSeats": trainSeats,
+          "travellers.$.flightSeats": flightSeats,
+          "travellers.$.staffRemarks": staffRemarks,
+        },
+      },
+      { new: true }
+    );
+
+    if (!updatedBooking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking or traveller not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Traveller details updated successfully",
+      booking: updatedBooking,
+    });
+  } catch (error) {
+    console.error("Error updating traveller details:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const adminAllotRooms = async (req, res) => {
+  try {
+    const { tourId } = req.params;
+    if (!tourId || !mongoose.Types.ObjectId.isValid(tourId)) {
+      return res.status(400).json({ error: "Valid tourId is required" });
+    }
+
+    const objectTourId = new mongoose.Types.ObjectId(tourId);
+
+    const bookings = await tourBookingModel
+      .find({
+        tourId: objectTourId,
+        "cancelled.byAdmin": false,
+        "cancelled.byTraveller": false,
+      })
+      .lean();
+
+    if (bookings.length === 0) {
+      return res.json({
+        tourId,
+        unpaidGuests: [],
+        roomAllocations: [],
+        message: "No active bookings found for this tour.",
+      });
+    }
+
+    // === Separate paid and unpaid ===
+    const paidBookings = bookings.filter(
+      (b) => b.payment.advance.paid && b.payment.advance.paymentVerified
+    );
+
+    const unpaidBookings = bookings.filter(
+      (b) => !b.payment.advance.paid || !b.payment.advance.paymentVerified
+    );
+
+    const unpaidGuests = [];
+    unpaidBookings.forEach((booking) => {
+      booking.travellers.forEach((traveller) => {
+        if (!traveller.cancelled.byAdmin && !traveller.cancelled.byTraveller) {
+          unpaidGuests.push({
+            bookingId: booking._id.toString(),
+            ...getBasicTravelerInfo(traveller),
+          });
+        }
+      });
+    });
+
+    const rawRoomEntries = [];
+
+    // Track allocated travellers to prevent duplicates
+    const allocatedTravellerIds = new Set();
+
+    const createOccupant = (t, mobile) => ({
+      firstName: t.firstName,
+      lastName: t.lastName,
+      gender: t.gender,
+      mobile,
+      travellerId: t._id?.toString(),
+      sharingType: t.sharingType,
+      originalIndex: t.originalIndex, // Preserve original order
+    });
+
+    // === Step 1: Group by mobile number (Family/Friends - Case 6) ===
+    const mobileGroups = new Map();
+
+    paidBookings.forEach((booking) => {
+      const active = booking.travellers.filter(
+        (t) => !t.cancelled.byAdmin && !t.cancelled.byTraveller
+      );
+      // Preserve original order in travellers array
+      active.forEach((t, index) => {
+        t.originalIndex = index; // Add original index for sorting later
+      });
+      const mobile = booking.contact.mobile;
+
+      if (!mobileGroups.has(mobile)) mobileGroups.set(mobile, []);
+      active.forEach((t) => {
+        mobileGroups.get(mobile).push({
+          traveller: t,
+          bookingId: booking._id.toString(),
+        });
+      });
+    });
+
+    // === Step 2: Process each mobile group ===
+    for (const [mobile, groupItems] of mobileGroups) {
+      // Sort groupItems by original traveller index to maintain order
+      groupItems.sort(
+        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex
+      );
+
+      const travellers = groupItems.map((i) => i.traveller);
+      const bookingIds = [...new Set(groupItems.map((i) => i.bookingId))];
+
+      if (travellers.length === 0) continue;
+
+      const sharingTypes = [...new Set(travellers.map((t) => t.sharingType))];
+      const isUniformSharing =
+        sharingTypes.length === 1 &&
+        ["double", "triple"].includes(sharingTypes[0]);
+
+      const isMarriedCouple =
+        travellers.length === 2 &&
+        travellers[0].gender !== travellers[1].gender &&
+        travellers.every((t) => t.sharingType === "double");
+
+      const rooms = [];
+
+      // === Husband & Wife Rule ===
+      if (isMarriedCouple) {
+        rooms.push({
+          sharingType: "double",
+          occupants: travellers.map((t) => createOccupant(t, mobile)),
+        });
+      }
+      // === Other cases: Mixed or Uniform sharing — allocate full groups in original order ===
+      else {
+        // Group by sharing type while maintaining order
+        const bySharing = {};
+        travellers.forEach((t) => {
+          const key = t.sharingType;
+          if (!bySharing[key]) bySharing[key] = [];
+          bySharing[key].push(t);
+        });
+
+        Object.keys(bySharing).forEach((type) => {
+          if (!["double", "triple"].includes(type)) return;
+
+          const list = bySharing[type];
+          const capacity = type === "double" ? 2 : 3;
+
+          let i = 0;
+          while (i < list.length) {
+            const remaining = list.length - i;
+            if (remaining >= capacity) {
+              const group = list.slice(i, i + capacity);
+              rooms.push({
+                sharingType: type,
+                occupants: group.map((t) => createOccupant(t, mobile)),
+              });
+              i += capacity;
+            } else {
+              i += remaining; // Leave remainder
+            }
+          }
+        });
+
+        // Add children in original order to first adult room
+        const children = travellers.filter(
+          (t) =>
+            t.sharingType === "withBerth" || t.sharingType === "withoutBerth"
+        );
+        if (children.length > 0 && rooms.length > 0) {
+          children.forEach((child) => {
+            rooms[0].occupants.push(createOccupant(child, mobile));
+          });
+          rooms.forEach((room) => {
+            const total = room.occupants.length;
+            if (total > 3) room.sharingType = "quad";
+            else if (total > 2) room.sharingType = "triple";
+          });
+        }
+      }
+
+      if (rooms.length > 0) {
+        rawRoomEntries.push({
+          bookingId: bookingIds[0],
+          contactMobile: mobile,
+          rooms: assignRoomNumbers(rooms),
+        });
+
+        rooms.forEach((room) => {
+          room.occupants.forEach((occ) => {
+            if (occ.travellerId) allocatedTravellerIds.add(occ.travellerId);
+          });
+        });
+      }
+    }
+
+    // === Step 3: Global pooling for remainders (preserve order within same sharing/gender) ===
+    const remainderPool = {};
+
+    paidBookings.forEach((booking) => {
+      booking.travellers.forEach((t, index) => {
+        if (
+          !t.cancelled.byAdmin &&
+          !t.cancelled.byTraveller &&
+          t._id &&
+          !allocatedTravellerIds.has(t._id.toString()) &&
+          ["double", "triple"].includes(t.sharingType)
+        ) {
+          t.originalIndex = index; // Preserve order
+          const key = `${t.sharingType}-${t.gender}`;
+          if (!remainderPool[key]) remainderPool[key] = [];
+          remainderPool[key].push({
+            traveller: t,
+            mobile: booking.contact.mobile,
+            bookingId: booking._id.toString(),
+          });
+        }
+      });
+    });
+
+    Object.keys(remainderPool).forEach((key) => {
+      const [sharingType, gender] = key.split("-");
+      const capacity = sharingType === "double" ? 2 : 3;
+      let list = remainderPool[key];
+      if (list.length === 0) return;
+
+      // Sort by original traveller index to keep order as much as possible
+      list.sort(
+        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex
+      );
+
+      const rooms = [];
+      let i = 0;
+      while (i < list.length) {
+        const take = Math.min(capacity, list.length - i);
+        const occupants = list
+          .slice(i, i + take)
+          .map((item) => createOccupant(item.traveller, item.mobile));
+        rooms.push({
+          sharingType:
+            take === capacity ? sharingType : take === 2 ? "double" : "single",
+          occupants,
+        });
+        i += take;
+      }
+
+      if (rooms.length > 0) {
+        rawRoomEntries.push({
+          bookingId: list[0].bookingId,
+          contactMobile: list[0].mobile,
+          rooms: assignRoomNumbers(rooms),
+        });
+
+        rooms.forEach((room) => {
+          room.occupants.forEach((occ) => {
+            if (occ.travellerId) allocatedTravellerIds.add(occ.travellerId);
+          });
+        });
+      }
+    });
+
+    // === Step 4: Final single room reduction (same gender only) ===
+    const singleRooms = [];
+    rawRoomEntries.forEach((entry, entryIndex) => {
+      entry.rooms = entry.rooms.filter((room) => {
+        if (room.sharingType === "single") {
+          singleRooms.push({
+            entryIndex,
+            room,
+            contactMobile: entry.contactMobile,
+            bookingId: entry.bookingId,
+          });
+          return false;
+        }
+        return true;
+      });
+    });
+
+    const tripleSingles = { male: [], female: [] };
+    const doubleSingles = { male: [], female: [] };
+
+    singleRooms.forEach((single) => {
+      const occupant = single.room.occupants[0];
+      const gender = occupant.gender.toLowerCase();
+      const original = occupant.sharingType;
+      if (original === "triple") tripleSingles[gender].push(single);
+      else if (original === "double") doubleSingles[gender].push(single);
+    });
+
+    ["male", "female"].forEach((gender) => {
+      while (
+        tripleSingles[gender].length > 0 &&
+        doubleSingles[gender].length > 0
+      ) {
+        const tripleSingle = tripleSingles[gender].pop();
+        const doubleSingle = doubleSingles[gender].pop();
+
+        const newRoom = {
+          sharingType: "double",
+          occupants: [
+            ...tripleSingle.room.occupants,
+            ...doubleSingle.room.occupants,
+          ],
+        };
+
+        rawRoomEntries[tripleSingle.entryIndex].rooms.push(newRoom);
+      }
+
+      tripleSingles[gender].forEach((r) =>
+        rawRoomEntries[r.entryIndex].rooms.push(r.room)
+      );
+      doubleSingles[gender].forEach((r) =>
+        rawRoomEntries[r.entryIndex].rooms.push(r.room)
+      );
+    });
+
+    // === Final Grouping by Mobile ===
+    const mobileMap = new Map();
+    rawRoomEntries.forEach((entry) => {
+      const mobile = entry.contactMobile || "0000000000";
+      if (!mobileMap.has(mobile)) {
+        mobileMap.set(mobile, {
+          contactMobile: mobile,
+          bookingIds: new Set(),
+          rooms: [],
+        });
+      }
+      const g = mobileMap.get(mobile);
+      g.bookingIds.add(entry.bookingId);
+      g.rooms.push(...entry.rooms);
+    });
+
+    const groupedByMobile = Array.from(mobileMap.values())
+      .map((g) => ({
+        contactMobile: g.contactMobile,
+        bookingIds: Array.from(g.bookingIds),
+        rooms: g.rooms.map((r, i) => ({ ...r, roomNumber: i + 1 })),
+      }))
+      .sort((a, b) => a.contactMobile.localeCompare(b.contactMobile));
+
+    // === Check existing finalized allocation ===
+    const existing = await tourRoomAllocationModel.findOne({
+      tourId: objectTourId,
+    });
+
+    if (existing && existing.isFinalized) {
+      const flat = existing.groupedByMobile.flatMap((g) =>
+        g.rooms.map((r) => ({
+          contactMobile: g.contactMobile,
+          bookingIds: g.bookingIds,
+          roomNumber: r.roomNumber,
+          sharingType: r.sharingType,
+          occupants: r.occupants.map((o) => ({
+            firstName: o.firstName,
+            lastName: o.lastName,
+            gender: o.gender,
+          })),
+        }))
+      );
+
+      return res.json({
+        tourId,
+        unpaidGuests,
+        roomAllocations: flat,
+        groupedByMobile: existing.groupedByMobile,
+        totalRooms: flat.length,
+        totalGroups: existing.groupedByMobile.length,
+        saved: false,
+        message: "Finalized allocation displayed with updated unpaid guests.",
+      });
+    }
+
+    // === Save new allocation ===
+    await tourRoomAllocationModel.findOneAndUpdate(
+      { tourId: objectTourId },
+      {
+        tourId: objectTourId,
+        groupedByMobile,
+        grouped: true,
+        isFinalized: false,
+      },
+      { upsert: true, new: true }
+    );
+
+    const responseRooms = groupedByMobile.flatMap((g) =>
+      g.rooms.map((r) => ({
+        contactMobile: g.contactMobile,
+        bookingIds: g.bookingIds,
+        roomNumber: r.roomNumber,
+        sharingType: r.sharingType,
+        occupants: r.occupants.map((o) => ({
+          firstName: o.firstName,
+          lastName: o.lastName,
+          gender: o.gender,
+        })),
+      }))
+    );
+
+    res.json({
+      tourId,
+      unpaidGuests,
+      roomAllocations: responseRooms,
+      groupedByMobile,
+      totalRooms: responseRooms.length,
+      totalGroups: groupedByMobile.length,
+      saved: true,
+      message:
+        "Room allotment completed successfully (travellers in original order).",
+    });
+  } catch (error) {
+    console.error("Room allotment error:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+};
+
+// === Helper Functions ===
+const getBasicTravelerInfo = (t) => ({
+  title: t.title,
+  firstName: t.firstName,
+  lastName: t.lastName,
+  age: t.age,
+  gender: t.gender,
+  sharingType: t.sharingType,
+});
+
+const getSharingTypeFromSize = (size) => {
+  if (size === 1) return "single";
+  if (size === 2) return "double";
+  if (size === 3) return "triple";
+  return "quad";
+};
+
+const assignRoomNumbers = (rooms) =>
+  rooms.map((r, i) => ({ ...r, roomNumber: i + 1 }));
+
 export {
   addMissingFieldsToAllBookings,
   addTour,
@@ -1540,5 +2117,11 @@ export {
   getPendingApprovals,
   approveBookingUpdate,
   rejectBookingUpdate,
-  getAllUsers
+  getAllUsers,
+  getBookings,
+  adminBookingsTour,
+  adminTourList,
+  adminUpdateTraveller,
+  adminAllotRooms,
+  
 };

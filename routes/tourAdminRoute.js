@@ -17,7 +17,11 @@ import {
   rejectCancellation,
   tourAdminDashboard,
   upsertCancellationChart,
-  
+  getBookings,
+  adminTourList,
+  adminBookingsTour,
+  adminUpdateTraveller,
+  adminAllotRooms,
   getAllUsers
 } from "../controllers/tourAdminController.js";
 import authAdmin from "../middlewares/authAdmin.js";
@@ -42,6 +46,7 @@ touradminRouter.post(
 );
 
 touradminRouter.get("/bookings", authAdmin, bookingsAdmin);
+touradminRouter.get("/get-bookings", authAdmin, getBookings);
 touradminRouter.get("/touradmindashboard", authAdmin, tourAdminDashboard);
 touradminRouter.post(
   "/touradmincancelrule",
@@ -55,6 +60,10 @@ touradminRouter.post("/rejectcancellation", authAdmin, rejectCancellation);
 touradminRouter.post("/approvebookingupdate", authAdmin, approveBookingUpdate);
 touradminRouter.post("/rejectbookingupdate", authAdmin, rejectBookingUpdate);
 touradminRouter.get("/alluser-profile", authAdmin, getAllUsers);
+touradminRouter.get("/tourlist",adminTourList);
+touradminRouter.get("/adminallot-rooms/:tourId",adminAllotRooms);
+touradminRouter.get("/adminbookings-tour/:tourId", authAdmin, adminBookingsTour);
+touradminRouter.put("/adminupdate-traveller", authAdmin, adminUpdateTraveller);
 
 //Crictical
 touradminRouter.post(
