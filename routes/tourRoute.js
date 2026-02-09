@@ -28,7 +28,10 @@ import {
   TaskBookingComplete,
   taskMarkModifyReceipt,
   taskMarkAdvanceReceiptSent,
-  taskMarkBalanceReceiptSent
+  taskMarkBalanceReceiptSent,
+  taskMarkCancellationReceipt,
+  taskMarkManageBookingReceipt,
+ 
 
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
@@ -75,4 +78,7 @@ tourRouter.put("/task/complete-booking",          authTour, TaskBookingComplete)
 tourRouter.put("/task/modify-receipt",            authTour, taskMarkModifyReceipt);
 tourRouter.put("/task/mark-advance-receipt-sent", authTour, taskMarkAdvanceReceiptSent);
 tourRouter.put("/task/mark-balance-receipt-sent", authTour, taskMarkBalanceReceiptSent);
+tourRouter.put("/task/mark-cancellation-receipt-sent", authTour, taskMarkCancellationReceipt);
+tourRouter.put("/task/mark-managebooking-receipt-sent", authTour, taskMarkManageBookingReceipt);
+
 export default tourRouter;

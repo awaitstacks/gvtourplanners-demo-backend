@@ -12,6 +12,73 @@ import cancellationModel from "../models/cancellationModel.js";
 import tourRoomAllocationModel from "../models/roomModel.js";
 import manageBookingModel from "../models/manageBookingModel.js";
 
+//API for the admin login
+const loginAdmin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (
+      email === process.env.ADMIN_EMAIL &&
+      password === process.env.ADMIN_PASSWORD
+    ) {
+      const token = jwt.sign(email + password, process.env.JWT_SECRET);
+      res.json({
+        success: true,
+        token,
+      });
+    } else {
+      res.json({
+        success: false,
+        message: "Invalid credentials",
+      });
+    }
+  } catch (error) {
+    console.log(error);
+    res.json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+//THIS CONTROLLER IS USED IN TOUR CONTROLERS AND DATA PAGE
+const allTours = async (req, res) => {
+  try {
+    const tours = await tourModel.find({}).select("-password");
+    res.json({ success: true, tours });
+  } catch (error) {
+    console.log(error);
+    res.json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+//CHANGES THE AVAILABLITY OF TOUR
+const changeTourAvailability = async (req, res) => {
+  try {
+    const { tourId } = req.body; // ✅ Use tourId here
+
+    const tourData = await tourModel.findById(tourId);
+
+    if (!tourData) {
+      return res.json({ success: false, message: "Tour not found" });
+    }
+
+    await tourModel.findByIdAndUpdate(tourId, {
+      available: !tourData.available,
+    });
+
+    res.json({ success: true, message: "Availability changed" });
+  } catch (error) {
+    console.log(error);
+    res.json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+//Add tour controller
 const addTour = async (req, res) => {
   try {
     const {
@@ -373,395 +440,6 @@ const addTour = async (req, res) => {
   }
 };
 
-//API for the admin login
-const loginAdmin = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (
-      email === process.env.ADMIN_EMAIL &&
-      password === process.env.ADMIN_PASSWORD
-    ) {
-      const token = jwt.sign(email + password, process.env.JWT_SECRET);
-      res.json({
-        success: true,
-        token,
-      });
-    } else {
-      res.json({
-        success: false,
-        message: "Invalid credentials",
-      });
-    }
-  } catch (error) {
-    console.log(error);
-    res.json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-const allTours = async (req, res) => {
-  try {
-    const tours = await tourModel.find({}).select("-password");
-    res.json({ success: true, tours });
-  } catch (error) {
-    console.log(error);
-    res.json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-//API to get all appointments list
-
-const bookingsAdmin = async (req, res) => {
-  try {
-    const bookings = await tourBookingModel.find({});
-    res.json({ success: true, bookings });
-  } catch (error) {
-    console.log(error);
-    res.json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-const bookingRejectAdmin = async (req, res) => {
-  try {
-    const { tourBookingId, travellerIds = [] } = req.body;
-
-    // Validate input
-    if (
-      !tourBookingId ||
-      !Array.isArray(travellerIds) ||
-      travellerIds.length === 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "tourBookingId and travellerIds[] are required",
-      });
-    }
-
-    // Fetch booking
-    const booking = await tourBookingModel.findById(tourBookingId);
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: "Booking not found",
-      });
-    }
-
-    // Extract balance prices
-    const balanceDouble = Number(booking.tourData?.balanceDouble) || 0;
-    const balanceTriple = Number(booking.tourData?.balanceTriple) || 0;
-
-    // Payment status (used for deduction logic only)
-    const advancePaid =
-      booking.payment.advance.paid && booking.payment.advance.paymentVerified;
-    const balancePaid =
-      booking.payment.balance.paid && booking.payment.balance.paymentVerified;
-
-    // Normalize IDs
-    const idsSet = new Set(travellerIds.map(String));
-
-    // Check for travellers that block rejection
-    const cancelledByTraveller = [];
-    const alreadyRejectedTravellers = [];
-    const missingTravellers = [];
-
-    travellerIds.forEach((id) => {
-      const traveller = booking.travellers.find(
-        (t) => String(t._id) === String(id)
-      );
-      if (!traveller) {
-        missingTravellers.push(id);
-      } else if (traveller.cancelled.byTraveller) {
-        cancelledByTraveller.push(id);
-      } else if (traveller.cancelled.byAdmin) {
-        alreadyRejectedTravellers.push(id);
-      }
-    });
-
-    // Strict mode: Block if any blocking conditions exist
-    if (
-      cancelledByTraveller.length > 0 ||
-      alreadyRejectedTravellers.length === travellerIds.length ||
-      missingTravellers.length === travellerIds.length
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Rejection not allowed due to invalid traveller state.",
-        cancelledByTraveller,
-        alreadyRejected: alreadyRejectedTravellers,
-        missingTravellers,
-      });
-    }
-
-    // Proceed with valid travellers
-    let totalDeduction = 0;
-    const rejectedTravellers = [];
-
-    booking.travellers = booking.travellers.map((traveller) => {
-      const travellerIdStr = String(traveller._id);
-
-      if (idsSet.has(travellerIdStr)) {
-        traveller.cancelled.byAdmin = true;
-        traveller.cancelled.cancelledAt = new Date();
-
-        rejectedTravellers.push(traveller);
-
-        // Deduct only if advance paid AND balance not paid
-        if (advancePaid && !balancePaid) {
-          if (traveller.sharingType === "double") {
-            totalDeduction += balanceDouble;
-          } else if (traveller.sharingType === "triple") {
-            totalDeduction += balanceTriple;
-          }
-        }
-      }
-
-      return traveller;
-    });
-
-    // Update balance only if deduction is applicable
-    if (totalDeduction > 0) {
-      booking.payment.balance.amount = Math.max(
-        booking.payment.balance.amount - totalDeduction,
-        0
-      );
-    }
-
-    await booking.save();
-
-    res.json({
-      success: true,
-      message: "Traveller(s) rejected successfully",
-      updatedBalance: booking.payment.balance.amount,
-      rejectedTravellers: rejectedTravellers.map((t) => String(t._id)),
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-const bookingCancelAdmin = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  try {
-    const { tourBookingId, travellerIds = [] } = req.body;
-
-    if (
-      !tourBookingId ||
-      !Array.isArray(travellerIds) ||
-      travellerIds.length === 0
-    ) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        message: "tourBookingId and travellerIds[] are required",
-      });
-    }
-
-    const booking = await tourBookingModel
-      .findById(tourBookingId)
-      .session(session);
-    if (!booking) {
-      await session.abortTransaction();
-      return res
-        .status(404)
-        .json({ success: false, message: "Booking not found" });
-    }
-
-    // Prices & payment state
-    const balanceDouble = Number(booking.tourData?.balanceDouble) || 0;
-    const balanceTriple = Number(booking.tourData?.balanceTriple) || 0;
-    const advancePaid =
-      booking.payment.advance.paid && booking.payment.advance.paymentVerified;
-    const balancePaid =
-      booking.payment.balance.paid && booking.payment.balance.paymentVerified;
-
-    // ❗ New check: Advance must be paid before allowing admin cancellation
-    if (!advancePaid) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        message:
-          "User has not completed advance payment, cancellation cannot proceed.",
-      });
-    }
-
-    // Normalise to string IDs
-    const idsSet = new Set(travellerIds.map(String));
-
-    // Check that all provided travellers exist on this booking
-    const targetTravellers = booking.travellers.filter((t) =>
-      idsSet.has(String(t._id))
-    );
-    const missingIds = travellerIds.filter(
-      (id) => !booking.travellers.some((t) => String(t._id) === String(id))
-    );
-    if (missingIds.length > 0) {
-      await session.abortTransaction();
-      return res.status(404).json({
-        success: false,
-        message: "Some travellerIds do not belong to this booking",
-        missingTravellerIds: missingIds,
-      });
-    }
-
-    // Strict rule: every target must have been cancelled by the user first
-    const notCancelledByUser = targetTravellers.filter(
-      (t) => !t.cancelled?.byTraveller
-    );
-    const alreadyAdminCancelled = targetTravellers.filter(
-      (t) => t.cancelled?.byAdmin
-    );
-
-    if (notCancelledByUser.length > 0 || alreadyAdminCancelled.length > 0) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        message:
-          "Admin cancellation allowed only for travellers cancelled by user and not already admin-cancelled.",
-        details: {
-          notCancelledByUser: notCancelledByUser.map((t) => String(t._id)),
-          alreadyCancelledByAdmin: alreadyAdminCancelled.map((t) =>
-            String(t._id)
-          ),
-        },
-      });
-    }
-
-    // Apply admin cancellation + compute deduction
-    let totalDeduction = 0;
-    const now = new Date();
-
-    booking.travellers.forEach((t) => {
-      if (idsSet.has(String(t._id))) {
-        t.cancelled.byAdmin = true;
-        t.cancelled.cancelledAt = now;
-
-        if (!balancePaid) {
-          if (t.sharingType === "double") totalDeduction += balanceDouble;
-          else if (t.sharingType === "triple") totalDeduction += balanceTriple;
-        }
-      }
-    });
-
-    if (totalDeduction > 0) {
-      booking.payment.balance.amount = Math.max(
-        booking.payment.balance.amount - totalDeduction,
-        0
-      );
-    }
-
-    await booking.save({ session });
-    await session.commitTransaction();
-
-    return res.json({
-      success: true,
-      message: "Admin cancellation completed",
-      updatedBalance: booking.payment.balance.amount,
-      cancelledTravellers: targetTravellers.map((t) => String(t._id)),
-    });
-  } catch (error) {
-    await session.abortTransaction();
-    console.error(error);
-    return res.status(500).json({ success: false, message: error.message });
-  } finally {
-    session.endSession();
-  }
-};
-
-const bookingRelease = async (req, res) => {
-  try {
-    const { tourBookingId, travellerIds = [] } = req.body;
-
-    // Validate input
-    if (
-      !tourBookingId ||
-      !Array.isArray(travellerIds) ||
-      travellerIds.length === 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "tourBookingId and travellerIds[] are required",
-      });
-    }
-
-    // Fetch booking
-    const booking = await tourBookingModel.findById(tourBookingId);
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: "Booking not found",
-      });
-    }
-
-    const releasedTravellers = [];
-    const notFoundTravellers = [];
-    const notEligibleTravellers = [];
-
-    const idsSet = new Set(travellerIds.map(String));
-
-    // Process travellers
-    booking.travellers = booking.travellers.map((traveller) => {
-      const travellerIdStr = String(traveller._id);
-
-      if (idsSet.has(travellerIdStr)) {
-        const { cancelled } = traveller;
-
-        // Only allow release if cancelled.byTraveller = true AND cancelled.byAdmin = false
-        if (cancelled.byTraveller && !cancelled.byAdmin) {
-          traveller.cancelled.byTraveller = false;
-          traveller.cancelled.releasedAt = new Date();
-          releasedTravellers.push(travellerIdStr);
-        } else {
-          notEligibleTravellers.push(travellerIdStr);
-        }
-      }
-
-      return traveller;
-    });
-
-    // Identify travellers not found in booking
-    travellerIds.forEach((id) => {
-      if (!booking.travellers.some((t) => String(t._id) === String(id))) {
-        notFoundTravellers.push(id);
-      }
-    });
-
-    // If no travellers were released, respond with failure
-    if (releasedTravellers.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "No travellers released. Only traveller-cancelled (not admin-cancelled) bookings can be released.",
-        notFoundTravellers,
-        notEligibleTravellers,
-      });
-    }
-
-    await booking.save();
-
-    res.json({
-      success: true,
-      message: "Some or all travellers released successfully",
-      releasedTravellers,
-      notFoundTravellers,
-      notEligibleTravellers,
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
 
 const tourAdminDashboard = async (req, res) => {
   try {
@@ -783,6 +461,80 @@ const tourAdminDashboard = async (req, res) => {
     });
   }
 };
+
+//API to get all BOOKINGS
+
+const bookingsAdmin = async (req, res) => {
+  try {
+    const bookings = await tourBookingModel.find({});
+    res.json({ success: true, bookings });
+  } catch (error) {
+    console.log(error);
+    res.json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+//WORKS SAME LIKE BOOKINGS ADMIN BUT LINKED TO CONTEXT SO NEEDED
+const getBookings = async (req, res) => {
+  try {
+    console.log("Logged-in tour operator ID:", req.tourOperator?._id); // ← add this
+    const bookings = await tourBookingModel
+      .find({})
+      .populate({
+        path: "userId",
+        select: "name email mobile", // Only needed user fields
+      })
+      .populate({
+        path: "tourId",
+        select: "title destination startDate endDate available", // Tour details
+      })
+      .sort({ bookingDate: -1 }) // Latest bookings first
+      .lean(); // Better performance for large data
+      console.log("Total bookings found in DB:", bookings.length); // ← add this
+
+    if (!bookings || bookings.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No bookings found in the system.",
+        total: 0,
+        bookings: [],
+      });
+    }
+
+    // Optional: Add quick stats
+    const totalBookings = bookings.length;
+    const totalEarnings = bookings.reduce((sum, b) => {
+      let earnings = 0;
+      if (b.payment?.advance?.paid) earnings += b.payment.advance.amount || 0;
+      if (b.payment?.balance?.paid) earnings += b.payment.balance.amount || 0;
+      return sum + earnings;
+    }, 0);
+
+    const completedBookings = bookings.filter(b => b.isBookingCompleted).length;
+    const pendingBookings = totalBookings - completedBookings;
+
+    res.status(200).json({
+      success: true,
+      totalBookings,
+      totalEarnings,
+      completedBookings,
+      pendingBookings,
+      bookings,
+    });
+  } catch (error) {
+    console.error("Error in getBookings:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch all bookings",
+      error: error.message,
+    });
+  }
+};
+
+//ALL CONTROLLERS RELATED TO CANCLLATION START FROM HERE
 
 // GET (with auto-create default)
 const getCancellationChart = async (req, res) => {
@@ -810,7 +562,7 @@ const getCancellationChart = async (req, res) => {
   }
 };
 
-// UPSERT
+// UPDATE CANCELLATION CHART (or create if not exists)
 const upsertCancellationChart = async (req, res) => {
   try {
     const { gv, irctc } = req.body;
@@ -835,13 +587,7 @@ const upsertCancellationChart = async (req, res) => {
   }
 };
 
-/**
- * GET /touradmingetcancelrule
- * Returns pending cancellation requests:
- *   - raisedBy = true
- *   - approvedBy = false
- *   - at least one traveller cancelled by the traveller (not by admin)
- */
+//GET THE PENDING CANCELLATIONS
 const getCancellations = async (req, res) => {
   try {
     // 1. Find cancellation docs that are RAISED but NOT YET APPROVED
@@ -917,6 +663,211 @@ const getCancellations = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+//APPROVE CANCELLATION IN THE CANCELLATION APPROVALS PAGE
+// const approveCancellation = async (req, res) => {
+//   const session = await mongoose.startSession();
+//   session.startTransaction();
+
+//   try {
+//     const { bookingId, cancellationId } = req.body;
+
+//     if (!bookingId || !cancellationId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "bookingId and cancellationId are required",
+//       });
+//     }
+
+//     if (
+//       !mongoose.Types.ObjectId.isValid(bookingId) ||
+//       !mongoose.Types.ObjectId.isValid(cancellationId)
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid bookingId or cancellationId format",
+//       });
+//     }
+
+//     const cancellation = await cancellationModel
+//       .findOne({
+//         _id: cancellationId,
+//         bookingId,
+//         raisedBy: true,
+//         approvedBy: { $ne: true },
+//       })
+//       .session(session);
+
+//     if (!cancellation) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Cancellation request not found or already processed",
+//       });
+//     }
+
+//     const booking = await tourBookingModel
+//       .findById(bookingId)
+//       .select(
+//         "travellers gvCancellationPool irctcCancellationPool cancellationRequest payment contact.mobile"
+//       )
+//       .session(session);
+
+//     if (!booking) throw new Error("Booking not found");
+
+//     // === PENDING TRAVELLERS ===
+//     const pendingTravellers = (booking.travellers || []).filter(
+//       (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin !== true
+//     );
+
+//     const pendingCount = pendingTravellers.length;
+//     const requestedCount = (cancellation.travellerIds || []).length;
+
+//     // Build name list
+//     const getName = (t) =>
+//       `${t.title || ""} ${t.firstName || ""} ${t.lastName || ""}`.trim() ||
+//       "Unknown Traveller";
+
+//     const pendingNames = pendingTravellers.map(getName);
+//     const requestedNames = (cancellation.travellerIds || []).map((id) => {
+//       const t = booking.travellers.find(
+//         (t) => t._id.toString() === id.toString()
+//       );
+//       return t ? getName(t) : `Deleted Traveller (ID: ${id})`;
+//     });
+
+//     // === COUNT MISMATCH ===
+//     if (pendingCount !== requestedCount) {
+//       return res.status(400).json({
+//         success: false,
+//         message: `CANCELLATION BLOCKED: Traveller
+
+// User requested : ${pendingCount} traveller's
+// Admin calculated : ${requestedCount} traveller's
+
+// User requested: ${pendingNames.join(", ") || "None"}
+// But Admin worked: ${requestedNames.join(", ") || "None"}
+
+// Kindly reject this and raise new request`,
+//         details: {
+//           pendingTravellers: pendingTravellers.map((t) => ({
+//             name: getName(t),
+//             id: t._id.toString(),
+//             age: t.age,
+//             gender: t.gender,
+//           })),
+//           requestedTravellers: requestedNames,
+//           pendingCount,
+//           requestedCount,
+//         },
+//       });
+//     }
+
+//     // === ID MISMATCH ===
+//     const pendingIds = pendingTravellers.map((t) => t._id.toString()).sort();
+//     const requestIds = (cancellation.travellerIds || [])
+//       .map((id) => id.toString())
+//       .sort();
+
+//     const idsMatch =
+//       pendingIds.length === requestIds.length &&
+//       pendingIds.every((id, i) => id === requestIds[i]);
+
+//     if (!idsMatch) {
+//       return res.status(400).json({
+//         success: false,
+//         message: `SECURITY BLOCKED: Wrong travellers detected!
+
+// User requested:
+// → ${pendingNames.join("\n→ ") || "None"}
+
+// But Admin worked:
+// → ${requestedNames.join("\n→ ") || "None"}
+
+// Kindly reject this and raise new request`,
+//         details: {
+//           pendingTravellers: pendingTravellers.map((t) => ({
+//             name: getName(t),
+//             id: t._id.toString(),
+//           })),
+//           requestedTravellers: requestedNames.map((name, i) => ({
+//             name,
+//             id: requestIds[i],
+//           })),
+//           securityNote: "Only exact matching travellers can be cancelled",
+//         },
+//       });
+//     }
+
+//     // === ALL GOOD — APPROVE ===
+//     const gvAdd =
+//       (cancellation.gvCancellationAmount || 0) +
+//       (cancellation.remarksAmount || 0);
+//     const irctcAdd = cancellation.irctcCancellationAmount || 0;
+
+//     const newGvPool = (booking.gvCancellationPool || 0) + gvAdd;
+//     const newIrctcPool = (booking.irctcCancellationPool || 0) + irctcAdd;
+//     const finalBalance = Math.max(0, cancellation.updatedBalance || 0);
+
+//     const setObj = {
+//       gvCancellationPool: newGvPool,
+//       irctcCancellationPool: newIrctcPool,
+//       cancellationRequest: false,
+//       "payment.balance.amount": Number(finalBalance),
+//     };
+
+//     if (finalBalance === 0) {
+//       setObj["payment.balance.paid"] = true;
+//       setObj["payment.balance.paymentVerified"] = true;
+//       setObj["payment.balance.paidAt"] = new Date();
+//     }
+
+//     const arrayFilters = [];
+//     pendingTravellers.forEach((t, i) => {
+//       const elem = `elem${i}`;
+//       setObj[`travellers.$[${elem}].cancelled.byAdmin`] = true;
+//       setObj[`travellers.$[${elem}].cancelled.cancelledAt`] = new Date();
+//       arrayFilters.push({ [`${elem}._id`]: t._id });
+//     });
+
+//     await tourBookingModel.findByIdAndUpdate(
+//       bookingId,
+//       { $set: setObj },
+//       { arrayFilters, session, new: true }
+//     );
+
+//     await cancellationModel.findByIdAndUpdate(
+//       cancellationId,
+//       { approvedBy: true, approvedAt: new Date(), raisedBy: false },
+//       { session }
+//     );
+
+//     await session.commitTransaction();
+
+//     return res.json({
+//       success: true,
+//       message: `Cancellation approved successfully!
+
+// Cancelled: ${pendingNames.join(", ")}
+
+// New balance: ₹${finalBalance} ${finalBalance === 0 ? "(Fully Paid)" : ""}`,
+//       data: {
+//         cancelledTravellers: pendingNames,
+//         cancelledCount: pendingCount,
+//         newBalance: finalBalance,
+//         balancePaid: finalBalance === 0,
+//       },
+//     });
+//   } catch (err) {
+//     await session.abortTransaction();
+//     console.error("approveCancellation error:", err);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error during approval. Please try again.",
+//     });
+//   } finally {
+//     session.endSession();
+//   }
+// };
 
 const approveCancellation = async (req, res) => {
   const session = await mongoose.startSession();
@@ -1065,6 +1016,7 @@ Kindly reject this and raise new request`,
       gvCancellationPool: newGvPool,
       irctcCancellationPool: newIrctcPool,
       cancellationRequest: false,
+      cancellationReceipt: true,
       "payment.balance.amount": Number(finalBalance),
     };
 
@@ -1121,6 +1073,7 @@ New balance: ₹${finalBalance} ${finalBalance === 0 ? "(Fully Paid)" : ""}`,
     session.endSession();
   }
 };
+//REJECTING THE CANCELLATION IN ANCELLATION APPROVALS PAGE
 const rejectCancellation = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -1234,6 +1187,99 @@ const rejectCancellation = async (req, res) => {
     session.endSession();
   }
 };
+
+//REJECTING CANCELLATION IN DASHBOARD SO THAT USER END WILL GET UPDATED
+
+const bookingRelease = async (req, res) => {
+  try {
+    const { tourBookingId, travellerIds = [] } = req.body;
+
+    // Validate input
+    if (
+      !tourBookingId ||
+      !Array.isArray(travellerIds) ||
+      travellerIds.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "tourBookingId and travellerIds[] are required",
+      });
+    }
+
+    // Fetch booking
+    const booking = await tourBookingModel.findById(tourBookingId);
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    const releasedTravellers = [];
+    const notFoundTravellers = [];
+    const notEligibleTravellers = [];
+
+    const idsSet = new Set(travellerIds.map(String));
+
+    // Process travellers
+    booking.travellers = booking.travellers.map((traveller) => {
+      const travellerIdStr = String(traveller._id);
+
+      if (idsSet.has(travellerIdStr)) {
+        const { cancelled } = traveller;
+
+        // Only allow release if cancelled.byTraveller = true AND cancelled.byAdmin = false
+        if (cancelled.byTraveller && !cancelled.byAdmin) {
+          traveller.cancelled.byTraveller = false;
+          traveller.cancelled.releasedAt = new Date();
+          releasedTravellers.push(travellerIdStr);
+        } else {
+          notEligibleTravellers.push(travellerIdStr);
+        }
+      }
+
+      return traveller;
+    });
+
+    // Identify travellers not found in booking
+    travellerIds.forEach((id) => {
+      if (!booking.travellers.some((t) => String(t._id) === String(id))) {
+        notFoundTravellers.push(id);
+      }
+    });
+
+    // If no travellers were released, respond with failure
+    if (releasedTravellers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "No travellers released. Only traveller-cancelled (not admin-cancelled) bookings can be released.",
+        notFoundTravellers,
+        notEligibleTravellers,
+      });
+    }
+
+    await booking.save();
+
+    res.json({
+      success: true,
+      message: "Some or all travellers released successfully",
+      releasedTravellers,
+      notFoundTravellers,
+      notEligibleTravellers,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+//ALL CONTROLLERS RELATED TO CANCLLATION GOT END
+
+//ADD THE MISSING FIELDS TO ALL BOOKINGS IN THE DATABASE (ONE TIME USE API USED IN DB MIGRATION CENTRE)
 const addMissingFieldsToAllBookings = async (req, res) => {
   try {
     const totalBookings = await tourBookingModel.countDocuments();
@@ -1245,15 +1291,19 @@ const addMissingFieldsToAllBookings = async (req, res) => {
           { dummyField: { $exists: false } },
           { advanceAdminRemarks: { $exists: false } },
           { cancellationRequest: { $exists: false } },
+          { cancellationReceipt: { $exists: false } },
+          { manageBookingReceipt: { $exists: false } },
           // Add future fields here easily
         ],
       },
       {
         $set: {
           manageBooking: false,
-          dummyField: {},
+          dummyField: false,
           advanceAdminRemarks: [],
           cancellationRequest: false,
+          cancellationReceipt:false,
+          manageBookingReceipt:false,
         },
       }
     );
@@ -1270,6 +1320,8 @@ const addMissingFieldsToAllBookings = async (req, res) => {
           "dummyField",
           "advanceAdminRemarks",
           "cancellationRequest",
+          "cancellationReceipt",
+          "manageBookingReceipt"
         ],
       },
     });
@@ -1282,6 +1334,8 @@ const addMissingFieldsToAllBookings = async (req, res) => {
     });
   }
 };
+
+//MANAGE BOOKING RELATED CONTROLLER GET PENDING APPROVALS
 const getPendingApprovals = async (req, res) => {
   try {
     const pendingBookings = await manageBookingModel
@@ -1338,7 +1392,99 @@ const getPendingApprovals = async (req, res) => {
     });
   }
 };
+//APPROVE THE BOOKING UPDATE REQUEST IN THE MANAGE BOOKING APPROVALS PAGE
+// const approveBookingUpdate = async (req, res) => {
+//   try {
+//     const { bookingId } = req.body;
 
+//     if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Valid bookingId is required",
+//       });
+//     }
+
+//     // Step 1: Find manageBooking request
+//     const manageBooking = await manageBookingModel
+//       .findOne({ bookingId, approvedBy: false, raisedBy: true })
+//       .lean();
+
+//     if (!manageBooking) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "No pending update request found for this booking",
+//       });
+//     }
+
+//     if (manageBooking.approvedBy) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "This update has already been approved",
+//       });
+//     }
+
+//     // Validate amounts
+//     if (
+//       manageBooking.updatedAdvance === undefined ||
+//       manageBooking.updatedBalance === undefined
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "updatedAdvance and updatedBalance are required",
+//       });
+//     }
+
+//     // Step 2: Prepare update for tourBooking
+//     const updateData = {
+//       $set: {
+//         "payment.advance.amount": manageBooking.updatedAdvance,
+//         "payment.balance.amount": manageBooking.updatedBalance,
+//         travellers: manageBooking.travellers, // ← includes _id
+//         contact: manageBooking.contact,
+//         billingAddress: manageBooking.billingAddress,
+//         adminRemarks: manageBooking.adminRemarks || [],
+//         manageBooking: false, // reset flag
+//       },
+//     };
+
+//     // Step 3: Apply update
+//     const updatedTourBooking = await tourBookingModel.findByIdAndUpdate(
+//       bookingId,
+//       updateData,
+//       { new: true, runValidators: true }
+//     );
+
+//     if (!updatedTourBooking) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Original booking not found",
+//       });
+//     }
+
+//     // Step 4: Mark manageBooking as approved
+//     await manageBookingModel.findOneAndUpdate(
+//       { _id: manageBooking._id },
+//       { $set: { approvedBy: true, raisedBy: false, manageBooking: false } }
+//     );
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Booking update approved and applied successfully",
+//       data: {
+//         updatedBooking: updatedTourBooking,
+//         approvedRequestId: manageBooking._id,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error in approveBookingUpdate:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//       error: error.message,
+//     });
+//   }
+// };
+//APPROVE THE BOOKING UPDATE REQUEST IN THE MANAGE BOOKING APPROVALS PAGE
 const approveBookingUpdate = async (req, res) => {
   try {
     const { bookingId } = req.body;
@@ -1390,6 +1536,7 @@ const approveBookingUpdate = async (req, res) => {
         billingAddress: manageBooking.billingAddress,
         adminRemarks: manageBooking.adminRemarks || [],
         manageBooking: false, // reset flag
+        manageBookingReceipt: true,
       },
     };
 
@@ -1430,7 +1577,7 @@ const approveBookingUpdate = async (req, res) => {
     });
   }
 };
-
+//REJECT THE BOOKING UPDATE REQUEST IN THE MANAGE BOOKING APPROVALS PAGE
 const rejectBookingUpdate = async (req, res) => {
   try {
     const { bookingId, remark } = req.body; // remark is optional
@@ -1501,6 +1648,9 @@ const rejectBookingUpdate = async (req, res) => {
   }
 };
 
+
+
+//GET ALL USERS DATA FOR ALL USERS PAGE
 const getAllUsers = async (req, res) => {
   try {
     const users = await userModel
@@ -1523,61 +1673,7 @@ const getAllUsers = async (req, res) => {
   }
 };
 
-const getBookings = async (req, res) => {
-  try {
-    console.log("Logged-in tour operator ID:", req.tourOperator?._id); // ← add this
-    const bookings = await tourBookingModel
-      .find({})
-      .populate({
-        path: "userId",
-        select: "name email mobile", // Only needed user fields
-      })
-      .populate({
-        path: "tourId",
-        select: "title destination startDate endDate available", // Tour details
-      })
-      .sort({ bookingDate: -1 }) // Latest bookings first
-      .lean(); // Better performance for large data
-      console.log("Total bookings found in DB:", bookings.length); // ← add this
 
-    if (!bookings || bookings.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: "No bookings found in the system.",
-        total: 0,
-        bookings: [],
-      });
-    }
-
-    // Optional: Add quick stats
-    const totalBookings = bookings.length;
-    const totalEarnings = bookings.reduce((sum, b) => {
-      let earnings = 0;
-      if (b.payment?.advance?.paid) earnings += b.payment.advance.amount || 0;
-      if (b.payment?.balance?.paid) earnings += b.payment.balance.amount || 0;
-      return sum + earnings;
-    }, 0);
-
-    const completedBookings = bookings.filter(b => b.isBookingCompleted).length;
-    const pendingBookings = totalBookings - completedBookings;
-
-    res.status(200).json({
-      success: true,
-      totalBookings,
-      totalEarnings,
-      completedBookings,
-      pendingBookings,
-      bookings,
-    });
-  } catch (error) {
-    console.error("Error in getBookings:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch all bookings",
-      error: error.message,
-    });
-  }
-};
 
 
 const adminBookingsTour = async (req, res) => {
@@ -1642,44 +1738,20 @@ const adminTourList = async (req, res) => {
   }
 };
 
-// Update traveller-specific data in a booking
-const adminUpdateTraveller = async (req, res) => {
-  try {
-    const { bookingId, travellerId, trainSeats, flightSeats, staffRemarks } =
-      req.body;
+//ADMIN ROOM LIST HELPER FUNCTION AND CONTROLLERS
 
-    const updatedBooking = await tourBookingModel.findOneAndUpdate(
-      { _id: bookingId, "travellers._id": travellerId },
-      {
-        $set: {
-          "travellers.$.trainSeats": trainSeats,
-          "travellers.$.flightSeats": flightSeats,
-          "travellers.$.staffRemarks": staffRemarks,
-        },
-      },
-      { new: true }
-    );
+// === Helper Functions ===
+const getBasicTravelerInfo = (t) => ({
+  title: t.title,
+  firstName: t.firstName,
+  lastName: t.lastName,
+  age: t.age,
+  gender: t.gender,
+  sharingType: t.sharingType,
+});
+const assignRoomNumbers = (rooms) =>
+  rooms.map((r, i) => ({ ...r, roomNumber: i + 1 }));
 
-    if (!updatedBooking) {
-      return res.status(404).json({
-        success: false,
-        message: "Booking or traveller not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Traveller details updated successfully",
-      booking: updatedBooking,
-    });
-  } catch (error) {
-    console.error("Error updating traveller details:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
-};
 
 const adminAllotRooms = async (req, res) => {
   try {
@@ -2079,49 +2151,152 @@ const adminAllotRooms = async (req, res) => {
   }
 };
 
-// === Helper Functions ===
-const getBasicTravelerInfo = (t) => ({
-  title: t.title,
-  firstName: t.firstName,
-  lastName: t.lastName,
-  age: t.age,
-  gender: t.gender,
-  sharingType: t.sharingType,
-});
 
-const getSharingTypeFromSize = (size) => {
-  if (size === 1) return "single";
-  if (size === 2) return "double";
-  if (size === 3) return "triple";
-  return "quad";
+
+
+
+
+//Rejects booking from booking rejection section
+const bookingRejectAdmin = async (req, res) => {
+  try {
+    const { tourBookingId, travellerIds = [] } = req.body;
+
+    // Validate input
+    if (
+      !tourBookingId ||
+      !Array.isArray(travellerIds) ||
+      travellerIds.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "tourBookingId and travellerIds[] are required",
+      });
+    }
+
+    // Fetch booking
+    const booking = await tourBookingModel.findById(tourBookingId);
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    // Extract balance prices
+    const balanceDouble = Number(booking.tourData?.balanceDouble) || 0;
+    const balanceTriple = Number(booking.tourData?.balanceTriple) || 0;
+
+    // Payment status (used for deduction logic only)
+    const advancePaid =
+      booking.payment.advance.paid && booking.payment.advance.paymentVerified;
+    const balancePaid =
+      booking.payment.balance.paid && booking.payment.balance.paymentVerified;
+
+    // Normalize IDs
+    const idsSet = new Set(travellerIds.map(String));
+
+    // Check for travellers that block rejection
+    const cancelledByTraveller = [];
+    const alreadyRejectedTravellers = [];
+    const missingTravellers = [];
+
+    travellerIds.forEach((id) => {
+      const traveller = booking.travellers.find(
+        (t) => String(t._id) === String(id)
+      );
+      if (!traveller) {
+        missingTravellers.push(id);
+      } else if (traveller.cancelled.byTraveller) {
+        cancelledByTraveller.push(id);
+      } else if (traveller.cancelled.byAdmin) {
+        alreadyRejectedTravellers.push(id);
+      }
+    });
+
+    // Strict mode: Block if any blocking conditions exist
+    if (
+      cancelledByTraveller.length > 0 ||
+      alreadyRejectedTravellers.length === travellerIds.length ||
+      missingTravellers.length === travellerIds.length
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Rejection not allowed due to invalid traveller state.",
+        cancelledByTraveller,
+        alreadyRejected: alreadyRejectedTravellers,
+        missingTravellers,
+      });
+    }
+
+    // Proceed with valid travellers
+    let totalDeduction = 0;
+    const rejectedTravellers = [];
+
+    booking.travellers = booking.travellers.map((traveller) => {
+      const travellerIdStr = String(traveller._id);
+
+      if (idsSet.has(travellerIdStr)) {
+        traveller.cancelled.byAdmin = true;
+        traveller.cancelled.cancelledAt = new Date();
+
+        rejectedTravellers.push(traveller);
+
+        // Deduct only if advance paid AND balance not paid
+        if (advancePaid && !balancePaid) {
+          if (traveller.sharingType === "double") {
+            totalDeduction += balanceDouble;
+          } else if (traveller.sharingType === "triple") {
+            totalDeduction += balanceTriple;
+          }
+        }
+      }
+
+      return traveller;
+    });
+
+    // Update balance only if deduction is applicable
+    if (totalDeduction > 0) {
+      booking.payment.balance.amount = Math.max(
+        booking.payment.balance.amount - totalDeduction,
+        0
+      );
+    }
+
+    await booking.save();
+
+    res.json({
+      success: true,
+      message: "Traveller(s) rejected successfully",
+      updatedBalance: booking.payment.balance.amount,
+      rejectedTravellers: rejectedTravellers.map((t) => String(t._id)),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
-
-const assignRoomNumbers = (rooms) =>
-  rooms.map((r, i) => ({ ...r, roomNumber: i + 1 }));
-
 export {
-  addMissingFieldsToAllBookings,
-  addTour,
   loginAdmin,
   allTours,
-  bookingsAdmin,
-  bookingCancelAdmin,
-  bookingRejectAdmin,
-  bookingRelease,
+  changeTourAvailability,
+  addTour,
   tourAdminDashboard,
-  upsertCancellationChart,
+  bookingsAdmin,
+  getBookings,
   getCancellationChart,
+  upsertCancellationChart,
   getCancellations,
   approveCancellation,
   rejectCancellation,
+  bookingRelease,
+  addMissingFieldsToAllBookings,
   getPendingApprovals,
   approveBookingUpdate,
   rejectBookingUpdate,
   getAllUsers,
-  getBookings,
   adminBookingsTour,
   adminTourList,
-  adminUpdateTraveller,
   adminAllotRooms,
-  
+  bookingRejectAdmin,  
 };
+

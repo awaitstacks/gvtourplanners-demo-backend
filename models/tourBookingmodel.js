@@ -142,7 +142,8 @@ const tourBookingSchema = new mongoose.Schema({
     },
   ],
 
-  dummyField: {},
+  cancellationReceipt: { type: Boolean, default: false },
+  manageBookingReceipt: { type: Boolean, default: false },
 
   // General admin remarks (kept separate)
   adminRemarks: [

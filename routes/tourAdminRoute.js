@@ -5,7 +5,7 @@ import {
   allTours,
   approveBookingUpdate,
   approveCancellation,
-  bookingCancelAdmin,
+  
   bookingRejectAdmin,
   bookingRelease,
   bookingsAdmin,
@@ -20,14 +20,14 @@ import {
   getBookings,
   adminTourList,
   adminBookingsTour,
-  adminUpdateTraveller,
+  changeTourAvailability,
   adminAllotRooms,
   getAllUsers
 } from "../controllers/tourAdminController.js";
 import authAdmin from "../middlewares/authAdmin.js";
 import { tourUpload } from "../middlewares/multer.js"; // ✅ Correct import (pre-configured fields)
 
-import { changeTourAvailability } from "../controllers/tourController.js";
+
 
 const touradminRouter = express.Router();
 
@@ -36,7 +36,7 @@ touradminRouter.post("/add-tour", authAdmin, tourUpload, addTour);
 touradminRouter.post("/login", loginAdmin);
 touradminRouter.post("/all-tours", authAdmin, allTours);
 
-touradminRouter.post("/cancel-bookingadmin", authAdmin, bookingCancelAdmin);
+
 touradminRouter.post("/reject-bookingadmin", authAdmin, bookingRejectAdmin);
 touradminRouter.post("/release-bookingadmin", authAdmin, bookingRelease);
 touradminRouter.post(
@@ -63,7 +63,7 @@ touradminRouter.get("/alluser-profile", authAdmin, getAllUsers);
 touradminRouter.get("/tourlist",adminTourList);
 touradminRouter.get("/adminallot-rooms/:tourId",adminAllotRooms);
 touradminRouter.get("/adminbookings-tour/:tourId", authAdmin, adminBookingsTour);
-touradminRouter.put("/adminupdate-traveller", authAdmin, adminUpdateTraveller);
+
 
 //Crictical
 touradminRouter.post(
