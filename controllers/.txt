@@ -1,0 +1,14 @@
+Manage booking algorithm
+
+A = Sum of all active traveller package advance amount from tour model
+B = Sum of all active traveller package balance amount from tour model
+C = advance paid and verified amount for thes booking from tourbooking model
+D = Sum of all active traveller addons From tourbooking model
+E = Sum of all positive admin remarks From Tour bookingmodel
+F = Sum of all negative admin remarks from Tour booking model(Resulting number should be positve)
+G = Sum of all GV Cancellation pools From tour booking model
+H = Sum of all IRCTC Cancellation pools from tour booking model
+I = Balance paid and verified from the tour boking model
+J = sum of Added new travellers full package price
+K = sum of Added new travellers addons
+T = to store value of all activ travellers total package price can be fetched from tour model

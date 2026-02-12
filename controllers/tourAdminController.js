@@ -1288,7 +1288,7 @@ const addMissingFieldsToAllBookings = async (req, res) => {
       {
         $or: [
           { manageBooking: { $exists: false } },
-          { dummyField: { $exists: false } },
+          
           { advanceAdminRemarks: { $exists: false } },
           { cancellationRequest: { $exists: false } },
           { cancellationReceipt: { $exists: false } },
@@ -1299,7 +1299,7 @@ const addMissingFieldsToAllBookings = async (req, res) => {
       {
         $set: {
           manageBooking: false,
-          dummyField: false,
+          
           advanceAdminRemarks: [],
           cancellationRequest: false,
           cancellationReceipt:false,
@@ -1317,7 +1317,7 @@ const addMissingFieldsToAllBookings = async (req, res) => {
         modifiedCount: result.modifiedCount,
         fieldsEnsured: [
           "manageBooking",
-          "dummyField",
+          
           "advanceAdminRemarks",
           "cancellationRequest",
           "cancellationReceipt",
@@ -1392,99 +1392,9 @@ const getPendingApprovals = async (req, res) => {
     });
   }
 };
+
 //APPROVE THE BOOKING UPDATE REQUEST IN THE MANAGE BOOKING APPROVALS PAGE
-// const approveBookingUpdate = async (req, res) => {
-//   try {
-//     const { bookingId } = req.body;
 
-//     if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Valid bookingId is required",
-//       });
-//     }
-
-//     // Step 1: Find manageBooking request
-//     const manageBooking = await manageBookingModel
-//       .findOne({ bookingId, approvedBy: false, raisedBy: true })
-//       .lean();
-
-//     if (!manageBooking) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "No pending update request found for this booking",
-//       });
-//     }
-
-//     if (manageBooking.approvedBy) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "This update has already been approved",
-//       });
-//     }
-
-//     // Validate amounts
-//     if (
-//       manageBooking.updatedAdvance === undefined ||
-//       manageBooking.updatedBalance === undefined
-//     ) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "updatedAdvance and updatedBalance are required",
-//       });
-//     }
-
-//     // Step 2: Prepare update for tourBooking
-//     const updateData = {
-//       $set: {
-//         "payment.advance.amount": manageBooking.updatedAdvance,
-//         "payment.balance.amount": manageBooking.updatedBalance,
-//         travellers: manageBooking.travellers, // ← includes _id
-//         contact: manageBooking.contact,
-//         billingAddress: manageBooking.billingAddress,
-//         adminRemarks: manageBooking.adminRemarks || [],
-//         manageBooking: false, // reset flag
-//       },
-//     };
-
-//     // Step 3: Apply update
-//     const updatedTourBooking = await tourBookingModel.findByIdAndUpdate(
-//       bookingId,
-//       updateData,
-//       { new: true, runValidators: true }
-//     );
-
-//     if (!updatedTourBooking) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Original booking not found",
-//       });
-//     }
-
-//     // Step 4: Mark manageBooking as approved
-//     await manageBookingModel.findOneAndUpdate(
-//       { _id: manageBooking._id },
-//       { $set: { approvedBy: true, raisedBy: false, manageBooking: false } }
-//     );
-
-//     return res.status(200).json({
-//       success: true,
-//       message: "Booking update approved and applied successfully",
-//       data: {
-//         updatedBooking: updatedTourBooking,
-//         approvedRequestId: manageBooking._id,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Error in approveBookingUpdate:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Internal server error",
-//       error: error.message,
-//     });
-//   }
-// };
-//APPROVE THE BOOKING UPDATE REQUEST IN THE MANAGE BOOKING APPROVALS PAGE
 const approveBookingUpdate = async (req, res) => {
   try {
     const { bookingId } = req.body;
@@ -1496,7 +1406,7 @@ const approveBookingUpdate = async (req, res) => {
       });
     }
 
-    // Step 1: Find manageBooking request
+    // Step 1: Find pending manageBooking request
     const manageBooking = await manageBookingModel
       .findOne({ bookingId, approvedBy: false, raisedBy: true })
       .lean();
@@ -1531,16 +1441,24 @@ const approveBookingUpdate = async (req, res) => {
       $set: {
         "payment.advance.amount": manageBooking.updatedAdvance,
         "payment.balance.amount": manageBooking.updatedBalance,
-        travellers: manageBooking.travellers, // ← includes _id
+        travellers: manageBooking.travellers,
         contact: manageBooking.contact,
         billingAddress: manageBooking.billingAddress,
         adminRemarks: manageBooking.adminRemarks || [],
-        manageBooking: false, // reset flag
+        manageBooking: false,
         manageBookingReceipt: true,
       },
     };
 
-    // Step 3: Apply update
+    // Only if travellers were reduced in this request → reset paid flags + receipt flags
+    if (manageBooking.travellersReduced === true) {
+      updateData.$set["payment.advance.paid"] = false;
+      updateData.$set["payment.advance.paymentVerified"] = false; // optional clean-up
+      updateData.$set["receipts.advanceReceiptSent"] = false;
+      updateData.$set["receipts.advanceReceiptSentAt"] = null;
+    }
+
+    // Step 3: Apply update to original booking
     const updatedTourBooking = await tourBookingModel.findByIdAndUpdate(
       bookingId,
       updateData,

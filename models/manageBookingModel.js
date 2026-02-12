@@ -162,6 +162,10 @@ const manageBookingSchema = new mongoose.Schema({
   updatedAdvance: { type: Number },
   updatableBalance: { type: Number },
   updatedBalance: { type: Number },
+  travellersReduced: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 // Index for performance
