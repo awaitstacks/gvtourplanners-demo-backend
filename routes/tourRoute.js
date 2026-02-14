@@ -31,8 +31,7 @@ import {
   taskMarkBalanceReceiptSent,
   taskMarkCancellationReceipt,
   taskMarkManageBookingReceipt,
- 
-
+  addTour,
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
@@ -64,7 +63,7 @@ tourRouter.post("/bookings/:id/cancel", cancelBookingController);
 tourRouter.post(
   "/manage-booking-balance/:bookingId",
   authTour,
-  updateBookingBalance
+  updateBookingBalance,
 );
 tourRouter.get("/managed-bookings/history", getManagedBookingsHistory);
 tourRouter.get("/allot-rooms/:tourId", allotRooms);
@@ -74,11 +73,28 @@ tourRouter.get("/bookings-all", getAllBookings);
 
 // In your tourRouter file (or wherever you define routes)
 
-tourRouter.put("/task/complete-booking",          authTour, TaskBookingComplete);
-tourRouter.put("/task/modify-receipt",            authTour, taskMarkModifyReceipt);
-tourRouter.put("/task/mark-advance-receipt-sent", authTour, taskMarkAdvanceReceiptSent);
-tourRouter.put("/task/mark-balance-receipt-sent", authTour, taskMarkBalanceReceiptSent);
-tourRouter.put("/task/mark-cancellation-receipt-sent", authTour, taskMarkCancellationReceipt);
-tourRouter.put("/task/mark-managebooking-receipt-sent", authTour, taskMarkManageBookingReceipt);
+tourRouter.put("/task/complete-booking", authTour, TaskBookingComplete);
+tourRouter.put("/task/modify-receipt", authTour, taskMarkModifyReceipt);
+tourRouter.put(
+  "/task/mark-advance-receipt-sent",
+  authTour,
+  taskMarkAdvanceReceiptSent,
+);
+tourRouter.put(
+  "/task/mark-balance-receipt-sent",
+  authTour,
+  taskMarkBalanceReceiptSent,
+);
+tourRouter.put(
+  "/task/mark-cancellation-receipt-sent",
+  authTour,
+  taskMarkCancellationReceipt,
+);
+tourRouter.put(
+  "/task/mark-managebooking-receipt-sent",
+  authTour,
+  taskMarkManageBookingReceipt,
+);
+tourRouter.post("/add-tour", tourUpload, addTour);
 
 export default tourRouter;

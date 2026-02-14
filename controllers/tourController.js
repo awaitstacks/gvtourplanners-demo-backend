@@ -8,17 +8,15 @@ import manageBookingModel from "../models/manageBookingModel.js";
 import tourRoomAllocationModel from "../models/roomModel.js";
 import mongoose from "mongoose"; // Added missing import
 
-
-
 const tourList = async (req, res) => {
   try {
     const tours = await tourModel
       .find({})
       .sort({
         // 1. lastBookingDate year (descending) – newest year first
-        "lastBookingDate": -1,
+        lastBookingDate: -1,
         // 2. same year la irundha createdAt newest first
-        "createdAt": -1
+        createdAt: -1,
       })
       .lean();
 
@@ -36,7 +34,6 @@ const tourList = async (req, res) => {
     });
   }
 };
-
 
 const loginTour = async (req, res) => {
   try {
@@ -151,7 +148,7 @@ const bookingComplete = async (req, res) => {
         (traveller.cancelled?.byTraveller === true &&
           traveller.cancelled?.byAdmin === true) ||
         (traveller.cancelled?.byAdmin === true &&
-          traveller.cancelled?.byTraveller !== true)
+          traveller.cancelled?.byTraveller !== true),
     );
 
     if (!allTravellersCancelledValid) {
@@ -159,14 +156,14 @@ const bookingComplete = async (req, res) => {
       const travellerCancellationIssues = booking.travellers.filter(
         (traveller) =>
           traveller.cancelled?.byTraveller === true &&
-          traveller.cancelled?.byAdmin !== true
+          traveller.cancelled?.byAdmin !== true,
       );
 
       if (travellerCancellationIssues.length > 0) {
         const cancelledTravellersList = travellerCancellationIssues
           .map(
             (t) =>
-              `Traveller name: ${t.firstName || "Unnamed"} ${t.lastName || ""}`
+              `Traveller name: ${t.firstName || "Unnamed"} ${t.lastName || ""}`,
           )
           .join(", ");
 
@@ -382,14 +379,14 @@ const TaskBookingComplete = async (req, res) => {
         (traveller.cancelled?.byTraveller === true &&
           traveller.cancelled?.byAdmin === true) ||
         (traveller.cancelled?.byAdmin === true &&
-          traveller.cancelled?.byTraveller !== true)
+          traveller.cancelled?.byTraveller !== true),
     );
 
     if (!allTravellersCancelledValid) {
       const travellerCancellationIssues = booking.travellers.filter(
         (traveller) =>
           traveller.cancelled?.byTraveller === true &&
-          traveller.cancelled?.byAdmin !== true
+          traveller.cancelled?.byAdmin !== true,
       );
 
       if (travellerCancellationIssues.length > 0) {
@@ -407,27 +404,48 @@ const TaskBookingComplete = async (req, res) => {
       const { receipts } = booking;
 
       if (!advance?.paid) {
-        return res.json({ success: false, message: "Advance payment not made." });
+        return res.json({
+          success: false,
+          message: "Advance payment not made.",
+        });
       }
       if (!advance?.paymentVerified) {
-        return res.json({ success: false, message: "Advance payment not verified." });
+        return res.json({
+          success: false,
+          message: "Advance payment not verified.",
+        });
       }
       if (!receipts?.advanceReceiptSent) {
-        return res.json({ success: false, message: "Advance receipt not sent." });
+        return res.json({
+          success: false,
+          message: "Advance receipt not sent.",
+        });
       }
 
       if (!balance?.paid) {
-        return res.json({ success: false, message: "Balance payment not made." });
+        return res.json({
+          success: false,
+          message: "Balance payment not made.",
+        });
       }
       if (!balance?.paymentVerified) {
-        return res.json({ success: false, message: "Balance payment not verified." });
+        return res.json({
+          success: false,
+          message: "Balance payment not verified.",
+        });
       }
       if (!receipts?.balanceReceiptSent) {
-        return res.json({ success: false, message: "Balance receipt not sent." });
+        return res.json({
+          success: false,
+          message: "Balance receipt not sent.",
+        });
       }
 
       if (booking.isTripCompleted) {
-        return res.json({ success: false, message: "Modified receipt pending." });
+        return res.json({
+          success: false,
+          message: "Modified receipt pending.",
+        });
       }
     }
 
@@ -438,7 +456,7 @@ const TaskBookingComplete = async (req, res) => {
     await booking.save({ validateModifiedOnly: true });
 
     return res.status(200).json({
-      success: true,  // boolean true
+      success: true, // boolean true
       message: "Booking marked as completed successfully.",
       booking,
     });
@@ -451,7 +469,6 @@ const TaskBookingComplete = async (req, res) => {
     });
   }
 };
-
 
 const markOfflineAdvancePaid = async (req, res) => {
   try {
@@ -508,22 +525,24 @@ const markOfflineAdvancePaid = async (req, res) => {
 
     // Count various cancellation states
     const pendingTravellerCancellationCount = booking.travellers.filter(
-      (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === false
+      (t) =>
+        t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === false,
     ).length;
 
     const approvedByAdminCount = booking.travellers.filter(
-      (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === true
+      (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === true,
     ).length;
 
     const rejectedByAdminCount = booking.travellers.filter(
-      (t) => t.cancelled?.byAdmin === true
+      (t) => t.cancelled?.byAdmin === true,
     ).length;
 
     // NEW CONDITION: Even if ONE traveller has pending cancellation request
     if (pendingTravellerCancellationCount >= 1) {
       return res.status(400).json({
         success: false,
-        message: "Some travellers have requested cancellation. Cannot mark advance as paid until resolved.",
+        message:
+          "Some travellers have requested cancellation. Cannot mark advance as paid until resolved.",
       });
     }
 
@@ -531,7 +550,8 @@ const markOfflineAdvancePaid = async (req, res) => {
     if (approvedByAdminCount === totalTravellers) {
       return res.status(400).json({
         success: false,
-        message: "Booking already cancelled by traveller and approved by admin, cannot proceed",
+        message:
+          "Booking already cancelled by traveller and approved by admin, cannot proceed",
       });
     }
 
@@ -630,7 +650,7 @@ const markOfflineBalancePaid = async (req, res) => {
         (traveller.cancelled?.byTraveller === true &&
           traveller.cancelled?.byAdmin === true) ||
         (traveller.cancelled?.byAdmin === true &&
-          traveller.cancelled?.byTraveller !== true)
+          traveller.cancelled?.byTraveller !== true),
     );
 
     if (!allTravellersCancelledValid) {
@@ -638,14 +658,14 @@ const markOfflineBalancePaid = async (req, res) => {
       const travellerCancellationIssues = booking.travellers.filter(
         (traveller) =>
           traveller.cancelled?.byTraveller === true &&
-          traveller.cancelled?.byAdmin !== true
+          traveller.cancelled?.byAdmin !== true,
       );
 
       if (travellerCancellationIssues.length > 0) {
         const cancelledTravellersList = travellerCancellationIssues
           .map(
             (t) =>
-              `Traveller name: ${t.firstName || "Unnamed"} ${t.lastName || ""}`
+              `Traveller name: ${t.firstName || "Unnamed"} ${t.lastName || ""}`,
           )
           .join(", ");
 
@@ -726,7 +746,7 @@ const updateTraveller = async (req, res) => {
           "travellers.$.staffRemarks": staffRemarks,
         },
       },
-      { new: true }
+      { new: true },
     );
 
     if (!updatedBooking) {
@@ -889,7 +909,7 @@ const updateTourProfile = async (req, res) => {
         });
       }
       updateFields.galleryImages = await Promise.all(
-        galleryImages.map((img) => uploadImage(img))
+        galleryImages.map((img) => uploadImage(img)),
       );
     }
 
@@ -1001,48 +1021,48 @@ const updateTourProfile = async (req, res) => {
             excludes: Array.isArray(variant.excludes) ? variant.excludes : [],
             trainDetails: Array.isArray(variant.trainDetails)
               ? variant.trainDetails.map((train) => ({
-                trainNo: train.trainNo || "",
-                trainName: train.trainName || "",
-                fromCode: train.fromCode || "",
-                fromStation: train.fromStation || "",
-                toCode: train.toCode || "",
-                toStation: train.toStation || "",
-                class: train.class || "",
-                departureTime: train.departureTime || "",
-                arrivalTime: train.arrivalTime || "",
-                ticketOpenDate: train.ticketOpenDate || null,
-              }))
+                  trainNo: train.trainNo || "",
+                  trainName: train.trainName || "",
+                  fromCode: train.fromCode || "",
+                  fromStation: train.fromStation || "",
+                  toCode: train.toCode || "",
+                  toStation: train.toStation || "",
+                  class: train.class || "",
+                  departureTime: train.departureTime || "",
+                  arrivalTime: train.arrivalTime || "",
+                  ticketOpenDate: train.ticketOpenDate || null,
+                }))
               : [],
             flightDetails: Array.isArray(variant.flightDetails)
               ? variant.flightDetails.map((flight) => ({
-                airline: flight.airline || "",
-                flightNo: flight.flightNo || "",
-                fromCode: flight.fromCode || "",
-                fromAirport: flight.fromAirport || "",
-                toCode: flight.toCode || "",
-                toAirport: flight.toAirport || "",
-                class: flight.class || "",
-                departureTime: flight.departureTime || "",
-                arrivalTime: flight.arrivalTime || "",
-              }))
+                  airline: flight.airline || "",
+                  flightNo: flight.flightNo || "",
+                  fromCode: flight.fromCode || "",
+                  fromAirport: flight.fromAirport || "",
+                  toCode: flight.toCode || "",
+                  toAirport: flight.toAirport || "",
+                  class: flight.class || "",
+                  departureTime: flight.departureTime || "",
+                  arrivalTime: flight.arrivalTime || "",
+                }))
               : [],
             addons: Array.isArray(variant.addons)
               ? variant.addons.map((addon) => ({
-                name: addon.name || "",
-                amount: Number(addon.amount) || 0,
-              }))
+                  name: addon.name || "",
+                  amount: Number(addon.amount) || 0,
+                }))
               : [],
             boardingPoints: Array.isArray(variant.boardingPoints)
               ? variant.boardingPoints.map((bp) => ({
-                stationCode: bp.stationCode || "",
-                stationName: bp.stationName || "",
-              }))
+                  stationCode: bp.stationCode || "",
+                  stationName: bp.stationName || "",
+                }))
               : [],
             deboardingPoints: Array.isArray(variant.deboardingPoints)
               ? variant.deboardingPoints.map((dp) => ({
-                stationCode: dp.stationCode || "",
-                stationName: dp.stationName || "",
-              }))
+                  stationCode: dp.stationCode || "",
+                  stationName: dp.stationName || "",
+                }))
               : [],
           };
         });
@@ -1238,12 +1258,16 @@ const taskMarkAdvanceReceiptSent = async (req, res) => {
   try {
     const { bookingId } = req.body;
     if (!bookingId) {
-      return res.status(400).json({ success: false, message: "bookingId is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "bookingId is required" });
     }
 
     const booking = await tourBookingModel.findById(bookingId);
     if (!booking) {
-      return res.status(404).json({ success: false, message: "Booking not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Booking not found" });
     }
 
     booking.receipts.advanceReceiptSent = true;
@@ -1251,7 +1275,7 @@ const taskMarkAdvanceReceiptSent = async (req, res) => {
     await booking.save({ validateModifiedOnly: true });
 
     return res.status(200).json({
-      success: true,  // boolean true
+      success: true, // boolean true
       message: "Advance receipt marked as sent successfully",
       booking,
     });
@@ -1263,7 +1287,6 @@ const taskMarkAdvanceReceiptSent = async (req, res) => {
     });
   }
 };
-
 
 const markBalanceReceiptSent = async (req, res) => {
   try {
@@ -1385,7 +1408,7 @@ const taskMarkBalanceReceiptSent = async (req, res) => {
     await booking.save({ validateModifiedOnly: true });
 
     return res.status(200).json({
-      success: true,  // boolean true
+      success: true, // boolean true
       message: "Balance receipt marked as sent successfully",
       booking,
     });
@@ -1397,7 +1420,6 @@ const taskMarkBalanceReceiptSent = async (req, res) => {
     });
   }
 };
-
 
 const viewTourBalance = async (req, res) => {
   try {
@@ -1572,7 +1594,8 @@ const updateTourBalance = async (req, res) => {
 
     // Existing: Block if traveller applied for cancellation
     const hasTravellerAppliedForCancellation = booking.travellers.some(
-      (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === false
+      (t) =>
+        t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === false,
     );
 
     if (hasTravellerAppliedForCancellation) {
@@ -1593,7 +1616,7 @@ const updateTourBalance = async (req, res) => {
 
     // Existing: All travellers cancelled by admin
     const allTravellersCancelledByAdmin = booking.travellers.every(
-      (t) => t.cancelled?.byAdmin === true
+      (t) => t.cancelled?.byAdmin === true,
     );
 
     if (allTravellersCancelledByAdmin) {
@@ -1732,7 +1755,8 @@ const updateTourAdvance = async (req, res) => {
 
     // BLOCK: Traveller cancellation pending
     const hasTravellerAppliedForCancellation = booking.travellers.some(
-      (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === false
+      (t) =>
+        t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === false,
     );
 
     if (hasTravellerAppliedForCancellation) {
@@ -1902,7 +1926,7 @@ const taskMarkModifyReceipt = async (req, res) => {
     await booking.save({ validateModifiedOnly: true });
 
     return res.status(200).json({
-      success: true,  // boolean true
+      success: true, // boolean true
       message: "Trip completion status marked as not completed successfully",
       booking,
     });
@@ -1998,18 +2022,21 @@ const getCancellationsByBooking = async (req, res) => {
   }
 };
 
-
-
 const updateBookingBalance = async (req, res) => {
   try {
     const { bookingId } = req.params;
     const { updates = {} } = req.body;
 
     console.log(`[updateBookingBalance] Processing bookingId: ${bookingId}`);
-    console.log(`[updateBookingBalance] Received updates keys:`, Object.keys(updates));
+    console.log(
+      `[updateBookingBalance] Received updates keys:`,
+      Object.keys(updates),
+    );
 
     if (!mongoose.Types.ObjectId.isValid(bookingId)) {
-      return res.status(400).json({ success: false, message: "Invalid bookingId" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid bookingId" });
     }
 
     const original = await tourBookingModel
@@ -2018,38 +2045,54 @@ const updateBookingBalance = async (req, res) => {
       .lean();
 
     if (!original) {
-      return res.status(404).json({ success: false, message: "Booking not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Booking not found" });
     }
 
     const tour = original.tourId;
 
-    console.log(`[ORIGINAL] Advance paid: ${original.payment?.advance?.paid}, amount: ${original.payment?.advance?.amount || 0}`);
-    console.log(`[ORIGINAL] Balance paid: ${original.payment?.balance?.paid}, amount: ${original.payment?.balance?.amount || 0}`);
+    console.log(
+      `[ORIGINAL] Advance paid: ${original.payment?.advance?.paid}, amount: ${original.payment?.advance?.amount || 0}`,
+    );
+    console.log(
+      `[ORIGINAL] Balance paid: ${original.payment?.balance?.paid}, amount: ${original.payment?.balance?.amount || 0}`,
+    );
 
     // Early blocks
     const hasPendingTravellerCancellation = original.travellers.some(
-      (t) => t.cancelled?.byTraveller === true && !t.cancelled?.byAdmin
+      (t) => t.cancelled?.byTraveller === true && !t.cancelled?.byAdmin,
     );
 
     if (hasPendingTravellerCancellation) {
       console.log("[BLOCK] Pending traveller cancellation → blocked");
-      return res.status(400).json({ success: false, message: "Pending traveller cancellation request.", reason: "pending_traveller_cancellation" });
+      return res.status(400).json({
+        success: false,
+        message: "Pending traveller cancellation request.",
+        reason: "pending_traveller_cancellation",
+      });
     }
 
     if (original.cancellationRequest === true) {
       console.log("[BLOCK] Pending full cancellation → blocked");
-      return res.status(400).json({ success: false, message: "Pending full cancellation request.", reason: "pending_full_cancellation" });
+      return res.status(400).json({
+        success: false,
+        message: "Pending full cancellation request.",
+        reason: "pending_full_cancellation",
+      });
     }
 
     const advancePaid = original.payment?.advance?.paid ?? false;
     const balancePaid = original.payment?.balance?.paid ?? false;
     const fullyPaid = advancePaid && balancePaid;
 
-     // ────────────────────────────────────────────────
+    // ────────────────────────────────────────────────
     // CASE 5: Fully paid → only boarding/deboarding
     // ────────────────────────────────────────────────
     if (fullyPaid) {
-      console.log("[CASE 5] Fully paid → restricting to boarding/deboarding only");
+      console.log(
+        "[CASE 5] Fully paid → restricting to boarding/deboarding only",
+      );
 
       const restrictedTravellers = original.travellers.map((origT, i) => {
         const updT = updates.travellers?.[i];
@@ -2097,7 +2140,7 @@ const updateBookingBalance = async (req, res) => {
         raisedAt: new Date(Date.now() + 5.5 * 60 * 60 * 1000),
 
         // If you have this flag:
-        travellersReduced: false,  // or your logic — usually false in fully-paid case
+        travellersReduced: false, // or your logic — usually false in fully-paid case
 
         updatableAdvance: original.payment.advance.amount || 0,
         updatedAdvance: original.payment.advance.amount || 0,
@@ -2107,7 +2150,10 @@ const updateBookingBalance = async (req, res) => {
 
       const saved = await manageBookingModel.create(manageDoc);
 
-      console.log("[CASE 5] Created manage doc with locked values → new _id:", saved._id);
+      console.log(
+        "[CASE 5] Created manage doc with locked values → new _id:",
+        saved._id,
+      );
 
       return res.status(201).json({
         success: true,
@@ -2117,50 +2163,60 @@ const updateBookingBalance = async (req, res) => {
       });
     }
     // Merge updates + preserve cancelled flags
-    const mergedTravellers = (updates.travellers || original.travellers).map((newT) => {
-      const origT = original.travellers.find((o) => o._id?.toString() === newT._id?.toString());
-      if (origT?.cancelled) {
-        return { ...newT, cancelled: { ...origT.cancelled } };
-      }
-      return newT;
-    });
+    const mergedTravellers = (updates.travellers || original.travellers).map(
+      (newT) => {
+        const origT = original.travellers.find(
+          (o) => o._id?.toString() === newT._id?.toString(),
+        );
+        if (origT?.cancelled) {
+          return { ...newT, cancelled: { ...origT.cancelled } };
+        }
+        return newT;
+      },
+    );
 
     const merged = {
       ...original,
       ...updates,
       travellers: mergedTravellers,
       contact: { ...original.contact, ...(updates.contact || {}) },
-      billingAddress: { ...original.billingAddress, ...(updates.billingAddress || {}) },
+      billingAddress: {
+        ...original.billingAddress,
+        ...(updates.billingAddress || {}),
+      },
     };
 
     const getPackage = (t) => {
       return t.packageType === "main"
         ? tour
-        : tour.variantPackage?.[t.variantPackageIndex] ?? tour;
+        : (tour.variantPackage?.[t.variantPackageIndex] ?? tour);
     };
 
     const activeTravellers = merged.travellers.filter(
-      (t) => !t.cancelled?.byTraveller && !t.cancelled?.byAdmin
+      (t) => !t.cancelled?.byTraveller && !t.cancelled?.byAdmin,
     );
 
     // Identify newly added travellers
     const originalTravellerIds = new Set(
-      original.travellers
-        .filter(t => t._id)
-        .map(t => t._id.toString())
+      original.travellers.filter((t) => t._id).map((t) => t._id.toString()),
     );
 
-    const newAddedTravellers = activeTravellers.filter(t => {
+    const newAddedTravellers = activeTravellers.filter((t) => {
       if (!t._id) return true;
       return !originalTravellerIds.has(t._id.toString());
     });
 
-    console.log(`[NEW TRAVELLERS DETECTED] Count: ${newAddedTravellers.length}`);
+    console.log(
+      `[NEW TRAVELLERS DETECTED] Count: ${newAddedTravellers.length}`,
+    );
 
     // ────────────────────────────────────────────────
     // Calculate A, B, D, T
     // ────────────────────────────────────────────────
-    let A = 0, B = 0, D = 0, T = 0;   // T = total current full package price of active travellers
+    let A = 0,
+      B = 0,
+      D = 0,
+      T = 0; // T = total current full package price of active travellers
 
     activeTravellers.forEach((t) => {
       const pkg = getPackage(t);
@@ -2170,12 +2226,27 @@ const updateBookingBalance = async (req, res) => {
 
       if (t.sharingType === "double" || t.sharingType === "triple") {
         advanceVal = pkg?.advanceAmount?.adult || 0;
-        balanceVal = t.sharingType === "double" ? (pkg?.balanceDouble || 0) : (pkg?.balanceTriple || 0);
-        fullPackagePrice = t.sharingType === "double" ? (pkg?.price?.doubleSharing || 0) : (pkg?.price?.tripleSharing || 0);
-      } else if (t.sharingType === "withBerth" || t.sharingType === "withoutBerth") {
+        balanceVal =
+          t.sharingType === "double"
+            ? pkg?.balanceDouble || 0
+            : pkg?.balanceTriple || 0;
+        fullPackagePrice =
+          t.sharingType === "double"
+            ? pkg?.price?.doubleSharing || 0
+            : pkg?.price?.tripleSharing || 0;
+      } else if (
+        t.sharingType === "withBerth" ||
+        t.sharingType === "withoutBerth"
+      ) {
         advanceVal = pkg?.advanceAmount?.child || 0;
-        balanceVal = t.sharingType === "withBerth" ? (pkg?.balanceChildWithBerth || 0) : (pkg?.balanceChildWithoutBerth || 0);
-        fullPackagePrice = t.sharingType === "withBerth" ? (pkg?.price?.childWithBerth || 0) : (pkg?.price?.childWithoutBerth || 0);
+        balanceVal =
+          t.sharingType === "withBerth"
+            ? pkg?.balanceChildWithBerth || 0
+            : pkg?.balanceChildWithoutBerth || 0;
+        fullPackagePrice =
+          t.sharingType === "withBerth"
+            ? pkg?.price?.childWithBerth || 0
+            : pkg?.price?.childWithoutBerth || 0;
       }
 
       A += advanceVal;
@@ -2187,16 +2258,21 @@ const updateBookingBalance = async (req, res) => {
     // ────────────────────────────────────────────────
     // Calculate J & K → only new travellers
     // ────────────────────────────────────────────────
-    let J = 0, K = 0;
+    let J = 0,
+      K = 0;
 
     newAddedTravellers.forEach((t) => {
       const pkg = getPackage(t);
       let packagePrice = 0;
 
-      if (t.sharingType === "double") packagePrice = pkg?.price?.doubleSharing || 0;
-      else if (t.sharingType === "triple") packagePrice = pkg?.price?.tripleSharing || 0;
-      else if (t.sharingType === "withBerth") packagePrice = pkg?.price?.childWithBerth || 0;
-      else if (t.sharingType === "withoutBerth") packagePrice = pkg?.price?.childWithoutBerth || 0;
+      if (t.sharingType === "double")
+        packagePrice = pkg?.price?.doubleSharing || 0;
+      else if (t.sharingType === "triple")
+        packagePrice = pkg?.price?.tripleSharing || 0;
+      else if (t.sharingType === "withBerth")
+        packagePrice = pkg?.price?.childWithBerth || 0;
+      else if (t.sharingType === "withoutBerth")
+        packagePrice = pkg?.price?.childWithoutBerth || 0;
 
       J += packagePrice;
       K += t.selectedAddon?.price || 0;
@@ -2209,13 +2285,13 @@ const updateBookingBalance = async (req, res) => {
     const I = original.payment?.balance?.amount || 0;
 
     const E = (merged.adminRemarks || [])
-      .filter(r => (r.amount || 0) > 0)
+      .filter((r) => (r.amount || 0) > 0)
       .reduce((sum, r) => sum + (r.amount || 0), 0);
 
     const F = Math.abs(
       (merged.adminRemarks || [])
-        .filter(r => (r.amount || 0) < 0)
-        .reduce((sum, r) => sum + (r.amount || 0), 0)
+        .filter((r) => (r.amount || 0) < 0)
+        .reduce((sum, r) => sum + (r.amount || 0), 0),
     );
 
     const G = merged.gvCancellationPool || 0;
@@ -2241,15 +2317,21 @@ const updateBookingBalance = async (req, res) => {
     console.log(`│ H (IRCTC pool)        = ₹${H}`);
     console.log("└──────────────────────────────────────────────┘");
 
-    const originalActiveCount = original.travellers.filter(t => !t.cancelled?.byTraveller && !t.cancelled?.byAdmin).length;
+    const originalActiveCount = original.travellers.filter(
+      (t) => !t.cancelled?.byTraveller && !t.cancelled?.byAdmin,
+    ).length;
     const currentActiveCount = activeTravellers.length;
 
     const travellerReduced = currentActiveCount < originalActiveCount;
     const travellerAdded = currentActiveCount > originalActiveCount;
     const countSame = currentActiveCount === originalActiveCount;
 
-    console.log(`[TRAVELLERS] Original active: ${originalActiveCount} → Current: ${currentActiveCount}`);
-    console.log(`[CHANGE] Reduced=${travellerReduced} | Added=${travellerAdded} | Same=${countSame}`);
+    console.log(
+      `[TRAVELLERS] Original active: ${originalActiveCount} → Current: ${currentActiveCount}`,
+    );
+    console.log(
+      `[CHANGE] Reduced=${travellerReduced} | Added=${travellerAdded} | Same=${countSame}`,
+    );
 
     // ────────────────────────────────────────────────
     // Calculation logic — updated Case 1 to use T instead of B
@@ -2267,15 +2349,13 @@ const updateBookingBalance = async (req, res) => {
         updatableAdvance = updatedAdvance = C;
         updatableBalance = I + J + K;
         updatedBalance = I + J + K;
-      }
-      else if (countSame) {
+      } else if (countSame) {
         // Case 1 - same count, existing travellers edited
         appliedCase = "Case 1 - same count (existing edited)";
         updatableAdvance = updatedAdvance = C;
         updatableBalance = T + D + E + G + H;
         updatedBalance = updatableBalance - (C + F);
-      }
-      else if (travellerReduced) {
+      } else if (travellerReduced) {
         appliedCase = "Case 2 - travellers reduced (advance paid)";
         updatableAdvance = A;
         updatedAdvance = A + D;
@@ -2284,7 +2364,9 @@ const updateBookingBalance = async (req, res) => {
       }
     } else {
       // No advance paid
-      appliedCase = travellerReduced ? "Case 2 variant (no advance + reduced)" : "Case 4";
+      appliedCase = travellerReduced
+        ? "Case 2 variant (no advance + reduced)"
+        : "Case 4";
       updatableAdvance = A;
       updatedAdvance = A + D;
       updatableBalance = B;
@@ -2330,10 +2412,8 @@ const updateBookingBalance = async (req, res) => {
       // ────────────────────────────────────────────────────────────────
       travellersReduced:
         travellerReduced === true &&
-        (
-          (advancePaid && !balancePaid) ||   // advance paid + balance unpaid
-          (!advancePaid && !balancePaid)     // both unpaid
-        ),
+        ((advancePaid && !balancePaid) || // advance paid + balance unpaid
+          (!advancePaid && !balancePaid)), // both unpaid
 
       updatableAdvance,
       updatedAdvance,
@@ -2344,15 +2424,20 @@ const updateBookingBalance = async (req, res) => {
     const saved = await manageBookingModel.create(manageDoc);
 
     console.log(`[SUCCESS] Manage booking created → _id: ${saved._id}`);
-    console.log(`[FLAG] travellersReduced set to: ${manageDoc.travellersReduced} (reduced=${travellerReduced}, advancePaid=${advancePaid}, balancePaid=${balancePaid})`);
+    console.log(
+      `[FLAG] travellersReduced set to: ${manageDoc.travellersReduced} (reduced=${travellerReduced}, advancePaid=${advancePaid}, balancePaid=${balancePaid})`,
+    );
 
     return res.status(201).json({
       success: true,
       message: `Manage booking raised (${appliedCase})`,
-      warning: travellerReduced ? "Traveller count reduced" : (travellerAdded ? "New travellers added" : null),
+      warning: travellerReduced
+        ? "Traveller count reduced"
+        : travellerAdded
+          ? "New travellers added"
+          : null,
       data: saved,
     });
-
   } catch (err) {
     console.error("[ERROR] updateBookingBalance failed:", err);
     return res.status(500).json({
@@ -2362,11 +2447,6 @@ const updateBookingBalance = async (req, res) => {
     });
   }
 };
-
-
-
-
-
 
 const getManagedBookingsHistory = async (req, res) => {
   try {
@@ -2430,12 +2510,12 @@ const getManagedBookingsHistory = async (req, res) => {
         // Original Booking Reference
         originalBooking: original
           ? {
-            _id: original._id,
-            bookingDate: original.bookingDate,
-            advancePaid: original.payment?.advance?.amount || 0,
-            balanceDue: original.payment?.balance?.amount || 0,
-            totalTravellers: original.travellers?.length || 0,
-          }
+              _id: original._id,
+              bookingDate: original.bookingDate,
+              advancePaid: original.payment?.advance?.amount || 0,
+              balanceDue: original.payment?.balance?.amount || 0,
+              totalTravellers: original.travellers?.length || 0,
+            }
           : null,
 
         // Requested Updates
@@ -2502,11 +2582,11 @@ const allotRooms = async (req, res) => {
 
     // === Separate paid and unpaid ===
     const paidBookings = bookings.filter(
-      (b) => b.payment.advance.paid && b.payment.advance.paymentVerified
+      (b) => b.payment.advance.paid && b.payment.advance.paymentVerified,
     );
 
     const unpaidBookings = bookings.filter(
-      (b) => !b.payment.advance.paid || !b.payment.advance.paymentVerified
+      (b) => !b.payment.advance.paid || !b.payment.advance.paymentVerified,
     );
 
     const unpaidGuests = [];
@@ -2541,7 +2621,7 @@ const allotRooms = async (req, res) => {
 
     paidBookings.forEach((booking) => {
       const active = booking.travellers.filter(
-        (t) => !t.cancelled.byAdmin && !t.cancelled.byTraveller
+        (t) => !t.cancelled.byAdmin && !t.cancelled.byTraveller,
       );
       // Preserve original order in travellers array
       active.forEach((t, index) => {
@@ -2562,7 +2642,7 @@ const allotRooms = async (req, res) => {
     for (const [mobile, groupItems] of mobileGroups) {
       // Sort groupItems by original traveller index to maintain order
       groupItems.sort(
-        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex
+        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex,
       );
 
       const travellers = groupItems.map((i) => i.traveller);
@@ -2624,7 +2704,7 @@ const allotRooms = async (req, res) => {
         // Add children in original order to first adult room
         const children = travellers.filter(
           (t) =>
-            t.sharingType === "withBerth" || t.sharingType === "withoutBerth"
+            t.sharingType === "withBerth" || t.sharingType === "withoutBerth",
         );
         if (children.length > 0 && rooms.length > 0) {
           children.forEach((child) => {
@@ -2685,7 +2765,7 @@ const allotRooms = async (req, res) => {
 
       // Sort by original traveller index to keep order as much as possible
       list.sort(
-        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex
+        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex,
       );
 
       const rooms = [];
@@ -2766,10 +2846,10 @@ const allotRooms = async (req, res) => {
       }
 
       tripleSingles[gender].forEach((r) =>
-        rawRoomEntries[r.entryIndex].rooms.push(r.room)
+        rawRoomEntries[r.entryIndex].rooms.push(r.room),
       );
       doubleSingles[gender].forEach((r) =>
-        rawRoomEntries[r.entryIndex].rooms.push(r.room)
+        rawRoomEntries[r.entryIndex].rooms.push(r.room),
       );
     });
 
@@ -2814,7 +2894,7 @@ const allotRooms = async (req, res) => {
             lastName: o.lastName,
             gender: o.gender,
           })),
-        }))
+        })),
       );
 
       return res.json({
@@ -2838,7 +2918,7 @@ const allotRooms = async (req, res) => {
         grouped: true,
         isFinalized: false,
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true },
     );
 
     const responseRooms = groupedByMobile.flatMap((g) =>
@@ -2852,7 +2932,7 @@ const allotRooms = async (req, res) => {
           lastName: o.lastName,
           gender: o.gender,
         })),
-      }))
+      })),
     );
 
     res.json({
@@ -2892,7 +2972,6 @@ const getSharingTypeFromSize = (size) => {
 const assignRoomNumbers = (rooms) =>
   rooms.map((r, i) => ({ ...r, roomNumber: i + 1 }));
 
-
 const getToursByYear = async (req, res) => {
   try {
     const { year } = req.params;
@@ -2930,8 +3009,8 @@ const getToursByYear = async (req, res) => {
       .lean();
 
     // Split into available & sold out
-    const availableTours = allTours.filter(t => t.available === true);
-    const soldOutTours = allTours.filter(t => t.available === false);
+    const availableTours = allTours.filter((t) => t.available === true);
+    const soldOutTours = allTours.filter((t) => t.available === false);
 
     res.json({
       success: true,
@@ -2939,8 +3018,8 @@ const getToursByYear = async (req, res) => {
       totalTours: allTours.length,
       availableCount: availableTours.length,
       soldOutCount: soldOutTours.length,
-      availableTours,   // Available always come first
-      soldOutTours,     // Sold out come after
+      availableTours, // Available always come first
+      soldOutTours, // Sold out come after
     });
   } catch (error) {
     console.error("Error in getToursByYear:", error);
@@ -2952,31 +3031,29 @@ const getToursByYear = async (req, res) => {
   }
 };
 
-
-
 const getAvailableTourYears = async (req, res) => {
   try {
     // Primary: years from lastBookingDate
     const yearsFromDate = await tourModel.aggregate([
       {
         $group: {
-          _id: { $year: "$lastBookingDate" }
-        }
+          _id: { $year: "$lastBookingDate" },
+        },
       },
-      { $match: { "_id": { $ne: null } } },
-      { $sort: { "_id": -1 } } // Newest first
+      { $match: { _id: { $ne: null } } },
+      { $sort: { _id: -1 } }, // Newest first
     ]);
 
-    let yearList = yearsFromDate.map(item => item._id);
+    let yearList = yearsFromDate.map((item) => item._id);
 
     // Fallback: extract from batch if no dates found
     if (yearList.length === 0) {
       const batchYears = await tourModel.distinct("batch");
-      yearList = [...new Set(
-        batchYears
-          .map(b => b?.match(/\d{4}/)?.[0])
-          .filter(Boolean)
-      )].sort((a, b) => b - a);
+      yearList = [
+        ...new Set(
+          batchYears.map((b) => b?.match(/\d{4}/)?.[0]).filter(Boolean),
+        ),
+      ].sort((a, b) => b - a);
     }
 
     res.json({
@@ -3030,7 +3107,9 @@ const getAllBookings = async (req, res) => {
       return sum + earnings;
     }, 0);
 
-    const completedBookings = bookings.filter(b => b.isBookingCompleted).length;
+    const completedBookings = bookings.filter(
+      (b) => b.isBookingCompleted,
+    ).length;
     const pendingBookings = totalBookings - completedBookings;
 
     res.status(200).json({
@@ -3069,7 +3148,7 @@ const taskMarkCancellationReceipt = async (req, res) => {
     const updatedBooking = await tourBookingModel.findByIdAndUpdate(
       bookingId,
       { $set: { cancellationReceipt: false } },
-      { new: true, session }
+      { new: true, session },
     );
 
     if (!updatedBooking) {
@@ -3120,7 +3199,7 @@ const taskMarkManageBookingReceipt = async (req, res) => {
     const updatedBooking = await tourBookingModel.findByIdAndUpdate(
       bookingId,
       { $set: { manageBookingReceipt: false } },
-      { new: true, session }
+      { new: true, session },
     );
 
     if (!updatedBooking) {
@@ -3152,9 +3231,369 @@ const taskMarkManageBookingReceipt = async (req, res) => {
     session.endSession();
   }
 };
+
+const addTour = async (req, res) => {
+  try {
+    const {
+      title,
+      batch,
+      duration,
+      price,
+      destination,
+      sightseeing,
+      itinerary,
+      includes,
+      excludes,
+      trainDetails,
+      flightDetails,
+      lastBookingDate,
+      completedTripsCount,
+      available,
+      advanceAmount,
+      addons,
+      remarks,
+      boardingPoints,
+      deboardingPoints,
+      variantPackage,
+    } = req.body;
+
+    // Image handling
+    const files = req.files || {};
+    const titleImage = files.titleImage?.[0];
+    const mapImage = files.mapImage?.[0];
+    const galleryImages = files.galleryImages || [];
+
+    // Validate required fields
+    if (
+      !title ||
+      !batch ||
+      !duration ||
+      !price ||
+      !destination ||
+      !sightseeing ||
+      !itinerary ||
+      !includes ||
+      !excludes ||
+      !titleImage ||
+      !mapImage ||
+      galleryImages.length === 0 ||
+      !lastBookingDate ||
+      !advanceAmount ||
+      !boardingPoints ||
+      !deboardingPoints
+    ) {
+      return res.json({
+        success: false,
+        message: "Missing required tour details",
+      });
+    }
+
+    // Image upload function
+    const uploadImage = async (file) => {
+      const result = await cloudinary.uploader.upload(file.path, {
+        resource_type: "image",
+      });
+      return result.secure_url;
+    };
+
+    // Upload images
+    const titleImageUrl = await uploadImage(titleImage);
+    const mapImageUrl = await uploadImage(mapImage);
+    const galleryImageUrls = await Promise.all(
+      galleryImages.map((img) => uploadImage(img)),
+    );
+
+    // Parse and validate fields
+    let parsedDuration, parsedPrice, parsedAdvance;
+    try {
+      parsedDuration = JSON.parse(duration);
+      parsedPrice = JSON.parse(price);
+      parsedAdvance = JSON.parse(advanceAmount);
+    } catch {
+      return res.json({
+        success: false,
+        message: "Invalid JSON format for duration, price, or advanceAmount",
+      });
+    }
+
+    // Validate main tour price and advance amounts
+    const doubleSharing = Number(parsedPrice.doubleSharing);
+    const tripleSharing = Number(parsedPrice.tripleSharing);
+    const childWithBerth = Number(parsedPrice.childWithBerth) || 0;
+    const childWithoutBerth = Number(parsedPrice.childWithoutBerth) || 0;
+    const advanceAdult = Number(parsedAdvance.adult) || 0;
+    const advanceChild = Number(parsedAdvance.child) || 0;
+
+    if (
+      isNaN(doubleSharing) ||
+      isNaN(tripleSharing) ||
+      isNaN(advanceAdult) ||
+      isNaN(advanceChild)
+    ) {
+      return res.json({
+        success: false,
+        message: "Invalid number in price or advance amount",
+      });
+    }
+
+    // Calculate balances for main tour
+    const balanceDouble = doubleSharing - advanceAdult;
+    const balanceTriple = tripleSharing - advanceAdult;
+    const balanceChildWithBerth =
+      childWithBerth > 0 ? childWithBerth - advanceChild : null;
+    const balanceChildWithoutBerth =
+      childWithoutBerth > 0 ? childWithoutBerth - advanceChild : null;
+
+    // Parse arrays safely
+    const parseArrayField = (field, fieldName) => {
+      try {
+        const parsed = JSON.parse(field);
+        if (!Array.isArray(parsed)) {
+          throw new Error(`Invalid format for ${fieldName}`);
+        }
+        return parsed;
+      } catch {
+        throw new Error(`Invalid format for ${fieldName}`);
+      }
+    };
+
+    // Parse addons
+    let parsedAddons = [];
+    if (addons) {
+      try {
+        const temp = JSON.parse(addons);
+        if (Array.isArray(temp)) {
+          parsedAddons = temp.map((a) => ({
+            name: a.name || "",
+            amount: Number(a.amount) || 0,
+          }));
+        }
+      } catch {
+        return res.json({
+          success: false,
+          message: "Invalid format for addons",
+        });
+      }
+    }
+
+    // Parse boarding and deboarding points
+    let parsedBoardingPoints = [];
+    let parsedDeboardingPoints = [];
+    try {
+      parsedBoardingPoints = parseArrayField(
+        boardingPoints,
+        "boardingPoints",
+      ).map((b) => ({
+        stationCode: b.stationCode || "",
+        stationName: b.stationName || "",
+      }));
+      parsedDeboardingPoints = parseArrayField(
+        deboardingPoints,
+        "deboardingPoints",
+      ).map((b) => ({
+        stationCode: b.stationCode || "",
+        stationName: b.stationName || "",
+      }));
+    } catch (error) {
+      return res.json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    // Parse variantPackage
+    let parsedVariants = [];
+    if (variantPackage) {
+      try {
+        const temp = JSON.parse(variantPackage);
+        if (Array.isArray(temp)) {
+          parsedVariants = temp.map((v) => {
+            const vpPrice = v.price || {};
+            const vpAdvance = v.advanceAmount || {};
+            const vpDuration = v.duration || {};
+
+            const vpDouble = Number(vpPrice.doubleSharing) || 0;
+            const vpTriple = Number(vpPrice.tripleSharing) || 0;
+            const vpChildWithBerth = Number(vpPrice.childWithBerth) || 0;
+            const vpChildWithoutBerth = Number(vpPrice.childWithoutBerth) || 0;
+            const vpAdvanceAdult = Number(vpAdvance.adult) || 0;
+            const vpAdvanceChild = Number(vpAdvance.child) || 0;
+
+            return {
+              duration: {
+                days: Number(vpDuration.days) || 0,
+                nights: Number(vpDuration.nights) || 0,
+              },
+              price: {
+                doubleSharing: vpDouble,
+                tripleSharing: vpTriple,
+                childWithBerth: vpChildWithBerth,
+                childWithoutBerth: vpChildWithoutBerth,
+              },
+              advanceAmount: {
+                adult: vpAdvanceAdult,
+                child: vpAdvanceChild,
+              },
+              balanceDouble: vpDouble - vpAdvanceAdult,
+              balanceTriple: vpTriple - vpAdvanceAdult,
+              balanceChildWithBerth:
+                vpChildWithBerth > 0 ? vpChildWithBerth - vpAdvanceChild : null,
+              balanceChildWithoutBerth:
+                vpChildWithoutBerth > 0
+                  ? vpChildWithoutBerth - vpAdvanceChild
+                  : null,
+              destination: Array.isArray(v.destination) ? v.destination : [],
+              sightseeing: Array.isArray(v.sightseeing) ? v.sightseeing : [],
+              itinerary: Array.isArray(v.itinerary) ? v.itinerary : [],
+              includes: Array.isArray(v.includes) ? v.includes : [],
+              excludes: Array.isArray(v.excludes) ? v.excludes : [],
+              trainDetails: Array.isArray(v.trainDetails)
+                ? v.trainDetails.map((t) => ({
+                    trainNo: t.trainNo || "",
+                    trainName: t.trainName || "",
+                    fromCode: t.fromCode || "",
+                    fromStation: t.fromStation || "",
+                    toCode: t.toCode || "",
+                    toStation: t.toStation || "",
+                    class: t.class || "",
+                    departureTime: t.departureTime || "",
+                    arrivalTime: t.arrivalTime || "",
+                    ticketOpenDate: t.ticketOpenDate
+                      ? new Date(t.ticketOpenDate)
+                      : null,
+                  }))
+                : [],
+              flightDetails: Array.isArray(v.flightDetails)
+                ? v.flightDetails.map((f) => ({
+                    airline: f.airline || "",
+                    flightNo: f.flightNo || "",
+                    fromCode: f.fromCode || "",
+                    fromAirport: f.fromAirport || "",
+                    toCode: f.toCode || "",
+                    toAirport: f.toAirport || "",
+                    class: f.class || "",
+                    departureTime: f.departureTime || "",
+                    arrivalTime: f.arrivalTime || "",
+                  }))
+                : [],
+              addons: Array.isArray(v.addons)
+                ? v.addons.map((a) => ({
+                    name: a.name || "",
+                    amount: Number(a.amount) || 0,
+                  }))
+                : [],
+              remarks: v.remarks || "",
+              boardingPoints: Array.isArray(v.boardingPoints)
+                ? v.boardingPoints.map((b) => ({
+                    stationCode: b.stationCode || "",
+                    stationName: b.stationName || "",
+                  }))
+                : [],
+              deboardingPoints: Array.isArray(v.deboardingPoints)
+                ? v.deboardingPoints.map((b) => ({
+                    stationCode: b.stationCode || "",
+                    stationName: b.stationName || "",
+                  }))
+                : [],
+              lastBookingDate: v.lastBookingDate
+                ? new Date(v.lastBookingDate)
+                : null,
+            };
+          });
+        }
+      } catch {
+        return res.json({
+          success: false,
+          message: "Invalid format for variantPackage",
+        });
+      }
+    }
+
+    // Create tour data object
+    const tourData = {
+      title,
+      batch,
+      duration: {
+        days: Number(parsedDuration.days) || 0,
+        nights: Number(parsedDuration.nights) || 0,
+      },
+      price: {
+        doubleSharing,
+        tripleSharing,
+        childWithBerth,
+        childWithoutBerth,
+      },
+      advanceAmount: {
+        adult: advanceAdult,
+        child: advanceChild,
+      },
+      balanceDouble,
+      balanceTriple,
+      balanceChildWithBerth,
+      balanceChildWithoutBerth,
+      destination: parseArrayField(destination, "destination"),
+      sightseeing: parseArrayField(sightseeing, "sightseeing"),
+      itinerary: parseArrayField(itinerary, "itinerary"),
+      includes: parseArrayField(includes, "includes"),
+      excludes: parseArrayField(excludes, "excludes"),
+      trainDetails: trainDetails
+        ? parseArrayField(trainDetails, "trainDetails").map((t) => ({
+            trainNo: t.trainNo || "",
+            trainName: t.trainName || "",
+            fromCode: t.fromCode || "",
+            fromStation: t.fromStation || "",
+            toCode: t.toCode || "",
+            toStation: t.toStation || "",
+            class: t.class || "",
+            departureTime: t.departureTime || "",
+            arrivalTime: t.arrivalTime || "",
+            ticketOpenDate: t.ticketOpenDate
+              ? new Date(t.ticketOpenDate)
+              : null,
+          }))
+        : [],
+      flightDetails: flightDetails
+        ? parseArrayField(flightDetails, "flightDetails").map((f) => ({
+            airline: f.airline || "",
+            flightNo: f.flightNo || "",
+            fromCode: f.fromCode || "",
+            fromAirport: f.fromAirport || "",
+            toCode: f.toCode || "",
+            toAirport: f.toAirport || "",
+            class: f.class || "",
+            departureTime: f.departureTime || "",
+            arrivalTime: f.arrivalTime || "",
+          }))
+        : [],
+      addons: parsedAddons,
+      remarks: remarks || "",
+      boardingPoints: parsedBoardingPoints,
+      deboardingPoints: parsedDeboardingPoints,
+      titleImage: titleImageUrl,
+      mapImage: mapImageUrl,
+      galleryImages: galleryImageUrls,
+      lastBookingDate: new Date(lastBookingDate),
+      completedTripsCount: Number(completedTripsCount) || 0,
+      available: available ?? true,
+      variantPackage: parsedVariants,
+    };
+
+    // Save tour to database
+    const newTour = new tourModel(tourData);
+    await newTour.save();
+
+    res.json({
+      success: true,
+      message: "Tour added successfully",
+      data: newTour,
+    });
+  } catch (error) {
+    console.error(error);
+    res.json({ success: false, message: error.message });
+  }
+};
 export {
   tourList,
-
   loginTour,
   bookingsTour,
   bookingComplete,
@@ -3184,5 +3623,6 @@ export {
   taskMarkAdvanceReceiptSent,
   taskMarkBalanceReceiptSent,
   taskMarkCancellationReceipt,
-  taskMarkManageBookingReceipt
+  taskMarkManageBookingReceipt,
+  addTour,
 };

@@ -147,7 +147,7 @@ const addTour = async (req, res) => {
     const titleImageUrl = await uploadImage(titleImage);
     const mapImageUrl = await uploadImage(mapImage);
     const galleryImageUrls = await Promise.all(
-      galleryImages.map((img) => uploadImage(img))
+      galleryImages.map((img) => uploadImage(img)),
     );
 
     // Parse and validate fields
@@ -229,14 +229,14 @@ const addTour = async (req, res) => {
     try {
       parsedBoardingPoints = parseArrayField(
         boardingPoints,
-        "boardingPoints"
+        "boardingPoints",
       ).map((b) => ({
         stationCode: b.stationCode || "",
         stationName: b.stationName || "",
       }));
       parsedDeboardingPoints = parseArrayField(
         deboardingPoints,
-        "deboardingPoints"
+        "deboardingPoints",
       ).map((b) => ({
         stationCode: b.stationCode || "",
         stationName: b.stationName || "",
@@ -440,7 +440,6 @@ const addTour = async (req, res) => {
   }
 };
 
-
 const tourAdminDashboard = async (req, res) => {
   try {
     const tours = await tourModel.find({});
@@ -493,7 +492,7 @@ const getBookings = async (req, res) => {
       })
       .sort({ bookingDate: -1 }) // Latest bookings first
       .lean(); // Better performance for large data
-      console.log("Total bookings found in DB:", bookings.length); // ← add this
+    console.log("Total bookings found in DB:", bookings.length); // ← add this
 
     if (!bookings || bookings.length === 0) {
       return res.status(200).json({
@@ -513,7 +512,9 @@ const getBookings = async (req, res) => {
       return sum + earnings;
     }, 0);
 
-    const completedBookings = bookings.filter(b => b.isBookingCompleted).length;
+    const completedBookings = bookings.filter(
+      (b) => b.isBookingCompleted,
+    ).length;
     const pendingBookings = totalBookings - completedBookings;
 
     res.status(200).json({
@@ -621,7 +622,7 @@ const getCancellations = async (req, res) => {
         (t) =>
           (t.cancelled?.byTraveller === true &&
             t.cancelled?.byAdmin === false) ||
-          (t.cancelled?.byAdmin === true && t.cancelled?.byTraveller === false)
+          (t.cancelled?.byAdmin === true && t.cancelled?.byTraveller === false),
       );
     };
 
@@ -631,7 +632,7 @@ const getCancellations = async (req, res) => {
 
     // 4. Keep only cancellation docs whose booking passed the traveller check
     const result = pendingCancellations.filter(
-      (c) => c.bookingId && validBookingIds.includes(c.bookingId.toString())
+      (c) => c.bookingId && validBookingIds.includes(c.bookingId.toString()),
     );
 
     // 5. OPTIONAL: Populate booking & traveller data for the front-end
@@ -640,7 +641,7 @@ const getCancellations = async (req, res) => {
         const booking = await tourBookingModel
           .findById(c.bookingId)
           .select(
-            "userId tourId travellers contact bookingDate payment adminRemarks"
+            "userId tourId travellers contact bookingDate payment adminRemarks",
           )
           .populate({
             path: "travellers",
@@ -654,7 +655,7 @@ const getCancellations = async (req, res) => {
           .lean();
 
         return { ...c, booking };
-      })
+      }),
     );
 
     res.json({ success: true, data: enriched });
@@ -912,7 +913,7 @@ const approveCancellation = async (req, res) => {
     const booking = await tourBookingModel
       .findById(bookingId)
       .select(
-        "travellers gvCancellationPool irctcCancellationPool cancellationRequest payment contact.mobile"
+        "travellers gvCancellationPool irctcCancellationPool cancellationRequest payment contact.mobile",
       )
       .session(session);
 
@@ -920,7 +921,7 @@ const approveCancellation = async (req, res) => {
 
     // === PENDING TRAVELLERS ===
     const pendingTravellers = (booking.travellers || []).filter(
-      (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin !== true
+      (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin !== true,
     );
 
     const pendingCount = pendingTravellers.length;
@@ -934,7 +935,7 @@ const approveCancellation = async (req, res) => {
     const pendingNames = pendingTravellers.map(getName);
     const requestedNames = (cancellation.travellerIds || []).map((id) => {
       const t = booking.travellers.find(
-        (t) => t._id.toString() === id.toString()
+        (t) => t._id.toString() === id.toString(),
       );
       return t ? getName(t) : `Deleted Traveller (ID: ${id})`;
     });
@@ -1037,13 +1038,13 @@ Kindly reject this and raise new request`,
     await tourBookingModel.findByIdAndUpdate(
       bookingId,
       { $set: setObj },
-      { arrayFilters, session, new: true }
+      { arrayFilters, session, new: true },
     );
 
     await cancellationModel.findByIdAndUpdate(
       cancellationId,
       { approvedBy: true, approvedAt: new Date(), raisedBy: false },
-      { session }
+      { session },
     );
 
     await session.commitTransaction();
@@ -1106,7 +1107,7 @@ const rejectCancellation = async (req, res) => {
     }
 
     const invalidTravellerIds = travellerIds.filter(
-      (id) => !mongoose.Types.ObjectId.isValid(id)
+      (id) => !mongoose.Types.ObjectId.isValid(id),
     );
     if (invalidTravellerIds.length > 0) {
       return res.status(400).json({
@@ -1134,10 +1135,10 @@ const rejectCancellation = async (req, res) => {
 
     // Ensure all requested travellerIds are part of this cancellation
     const cancellationTravellerIds = cancellation.travellerIds.map((id) =>
-      id.toString()
+      id.toString(),
     );
     const missing = travellerIds.filter(
-      (id) => !cancellationTravellerIds.includes(id.toString())
+      (id) => !cancellationTravellerIds.includes(id.toString()),
     );
     if (missing.length > 0) {
       return res.status(400).json({
@@ -1155,14 +1156,14 @@ const rejectCancellation = async (req, res) => {
         approvedBy: false,
         rejectedAt: new Date(),
       },
-      { session }
+      { session },
     );
 
     // === ONLY THIS LINE ADDED: Clear cancellationRequest in main booking ===
     await tourBookingModel.findByIdAndUpdate(
       bookingId,
       { $set: { cancellationRequest: false } },
-      { session }
+      { session },
     );
     // ======================================================================
 
@@ -1288,7 +1289,7 @@ const addMissingFieldsToAllBookings = async (req, res) => {
       {
         $or: [
           { manageBooking: { $exists: false } },
-          
+
           { advanceAdminRemarks: { $exists: false } },
           { cancellationRequest: { $exists: false } },
           { cancellationReceipt: { $exists: false } },
@@ -1299,13 +1300,13 @@ const addMissingFieldsToAllBookings = async (req, res) => {
       {
         $set: {
           manageBooking: false,
-          
+
           advanceAdminRemarks: [],
           cancellationRequest: false,
-          cancellationReceipt:false,
-          manageBookingReceipt:false,
+          cancellationReceipt: false,
+          manageBookingReceipt: false,
         },
-      }
+      },
     );
 
     res.status(200).json({
@@ -1317,11 +1318,11 @@ const addMissingFieldsToAllBookings = async (req, res) => {
         modifiedCount: result.modifiedCount,
         fieldsEnsured: [
           "manageBooking",
-          
+
           "advanceAdminRemarks",
           "cancellationRequest",
           "cancellationReceipt",
-          "manageBookingReceipt"
+          "manageBookingReceipt",
         ],
       },
     });
@@ -1462,7 +1463,7 @@ const approveBookingUpdate = async (req, res) => {
     const updatedTourBooking = await tourBookingModel.findByIdAndUpdate(
       bookingId,
       updateData,
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     );
 
     if (!updatedTourBooking) {
@@ -1475,7 +1476,7 @@ const approveBookingUpdate = async (req, res) => {
     // Step 4: Mark manageBooking as approved
     await manageBookingModel.findOneAndUpdate(
       { _id: manageBooking._id },
-      { $set: { approvedBy: true, raisedBy: false, manageBooking: false } }
+      { $set: { approvedBy: true, raisedBy: false, manageBooking: false } },
     );
 
     return res.status(200).json({
@@ -1544,7 +1545,7 @@ const rejectBookingUpdate = async (req, res) => {
     const updated = await manageBookingModel.findByIdAndUpdate(
       manageBooking._id,
       updatePayload,
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     );
 
     // --- 5. Success response ---
@@ -1566,8 +1567,6 @@ const rejectBookingUpdate = async (req, res) => {
   }
 };
 
-
-
 //GET ALL USERS DATA FOR ALL USERS PAGE
 const getAllUsers = async (req, res) => {
   try {
@@ -1580,7 +1579,7 @@ const getAllUsers = async (req, res) => {
     res.json({
       success: true,
       total: users.length,
-      users,  // ← முக்கியம்: "users" key தான் தரணும்
+      users, // ← முக்கியம்: "users" key தான் தரணும்
     });
   } catch (error) {
     console.error("Error fetching users:", error);
@@ -1590,9 +1589,6 @@ const getAllUsers = async (req, res) => {
     });
   }
 };
-
-
-
 
 const adminBookingsTour = async (req, res) => {
   try {
@@ -1628,16 +1624,15 @@ const adminBookingsTour = async (req, res) => {
   }
 };
 
-
 const adminTourList = async (req, res) => {
   try {
     const tours = await tourModel
       .find({})
       .sort({
         // 1. lastBookingDate year (descending) – newest year first
-        "lastBookingDate": -1,
+        lastBookingDate: -1,
         // 2. same year la irundha createdAt newest first
-        "createdAt": -1
+        createdAt: -1,
       })
       .lean();
 
@@ -1670,7 +1665,6 @@ const getBasicTravelerInfo = (t) => ({
 const assignRoomNumbers = (rooms) =>
   rooms.map((r, i) => ({ ...r, roomNumber: i + 1 }));
 
-
 const adminAllotRooms = async (req, res) => {
   try {
     const { tourId } = req.params;
@@ -1699,11 +1693,11 @@ const adminAllotRooms = async (req, res) => {
 
     // === Separate paid and unpaid ===
     const paidBookings = bookings.filter(
-      (b) => b.payment.advance.paid && b.payment.advance.paymentVerified
+      (b) => b.payment.advance.paid && b.payment.advance.paymentVerified,
     );
 
     const unpaidBookings = bookings.filter(
-      (b) => !b.payment.advance.paid || !b.payment.advance.paymentVerified
+      (b) => !b.payment.advance.paid || !b.payment.advance.paymentVerified,
     );
 
     const unpaidGuests = [];
@@ -1738,7 +1732,7 @@ const adminAllotRooms = async (req, res) => {
 
     paidBookings.forEach((booking) => {
       const active = booking.travellers.filter(
-        (t) => !t.cancelled.byAdmin && !t.cancelled.byTraveller
+        (t) => !t.cancelled.byAdmin && !t.cancelled.byTraveller,
       );
       // Preserve original order in travellers array
       active.forEach((t, index) => {
@@ -1759,7 +1753,7 @@ const adminAllotRooms = async (req, res) => {
     for (const [mobile, groupItems] of mobileGroups) {
       // Sort groupItems by original traveller index to maintain order
       groupItems.sort(
-        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex
+        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex,
       );
 
       const travellers = groupItems.map((i) => i.traveller);
@@ -1821,7 +1815,7 @@ const adminAllotRooms = async (req, res) => {
         // Add children in original order to first adult room
         const children = travellers.filter(
           (t) =>
-            t.sharingType === "withBerth" || t.sharingType === "withoutBerth"
+            t.sharingType === "withBerth" || t.sharingType === "withoutBerth",
         );
         if (children.length > 0 && rooms.length > 0) {
           children.forEach((child) => {
@@ -1882,7 +1876,7 @@ const adminAllotRooms = async (req, res) => {
 
       // Sort by original traveller index to keep order as much as possible
       list.sort(
-        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex
+        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex,
       );
 
       const rooms = [];
@@ -1963,10 +1957,10 @@ const adminAllotRooms = async (req, res) => {
       }
 
       tripleSingles[gender].forEach((r) =>
-        rawRoomEntries[r.entryIndex].rooms.push(r.room)
+        rawRoomEntries[r.entryIndex].rooms.push(r.room),
       );
       doubleSingles[gender].forEach((r) =>
-        rawRoomEntries[r.entryIndex].rooms.push(r.room)
+        rawRoomEntries[r.entryIndex].rooms.push(r.room),
       );
     });
 
@@ -2011,7 +2005,7 @@ const adminAllotRooms = async (req, res) => {
             lastName: o.lastName,
             gender: o.gender,
           })),
-        }))
+        })),
       );
 
       return res.json({
@@ -2035,7 +2029,7 @@ const adminAllotRooms = async (req, res) => {
         grouped: true,
         isFinalized: false,
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true },
     );
 
     const responseRooms = groupedByMobile.flatMap((g) =>
@@ -2049,7 +2043,7 @@ const adminAllotRooms = async (req, res) => {
           lastName: o.lastName,
           gender: o.gender,
         })),
-      }))
+      })),
     );
 
     res.json({
@@ -2068,11 +2062,6 @@ const adminAllotRooms = async (req, res) => {
     res.status(500).json({ error: error.message || "Internal server error" });
   }
 };
-
-
-
-
-
 
 //Rejects booking from booking rejection section
 const bookingRejectAdmin = async (req, res) => {
@@ -2120,7 +2109,7 @@ const bookingRejectAdmin = async (req, res) => {
 
     travellerIds.forEach((id) => {
       const traveller = booking.travellers.find(
-        (t) => String(t._id) === String(id)
+        (t) => String(t._id) === String(id),
       );
       if (!traveller) {
         missingTravellers.push(id);
@@ -2176,7 +2165,7 @@ const bookingRejectAdmin = async (req, res) => {
     if (totalDeduction > 0) {
       booking.payment.balance.amount = Math.max(
         booking.payment.balance.amount - totalDeduction,
-        0
+        0,
       );
     }
 
@@ -2215,6 +2204,5 @@ export {
   adminBookingsTour,
   adminTourList,
   adminAllotRooms,
-  bookingRejectAdmin,  
+  bookingRejectAdmin,
 };
-
