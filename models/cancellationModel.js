@@ -19,6 +19,15 @@ const cancellationSchema = new mongoose.Schema(
       ref: "tourBooking",
       required: false,
     },
+    tnr: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      minlength: 6,
+      maxlength: 6,
+      required: false, // optional for old records, but should be populated
+      index: true, // good for fast lookups by TNR
+    },
     travellerIds: [{ type: mongoose.Schema.Types.ObjectId, required: false }], // store cancelled traveller _id(s)
     travellerIndexes: [{ type: Number, required: false }], // optional: store indexes sent from frontend
     netAmountPaid: { type: Number, required: false },
@@ -36,7 +45,7 @@ const cancellationSchema = new mongoose.Schema(
     irctcCancellationPool: { type: Number, required: false },
     remarkText: { type: String, required: false }, // optional: store remark text
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export default mongoose.model("cancellationModel", cancellationSchema);

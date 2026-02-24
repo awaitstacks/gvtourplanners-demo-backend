@@ -3,6 +3,15 @@ import mongoose from "mongoose";
 const tourBookingSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "user", required: true },
   tourId: { type: mongoose.Schema.Types.ObjectId, ref: "tour", required: true },
+  tnr: {
+    type: String,
+    unique: true, // ← very important for production safety
+    sparse: true, // allows existing docs without tnr to stay valid
+    trim: true,
+    uppercase: true,
+    minlength: 6,
+    maxlength: 6,
+  },
 
   userData: { type: Object, required: true },
   tourData: { type: Object, required: true },

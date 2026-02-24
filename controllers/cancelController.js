@@ -7,24 +7,15 @@ const CancelRule =
   mongoose.models.cancelrulemodel || mongoose.model("cancelrulemodel");
 
 // ---------- HELPER FUNCTIONS (Unchanged) ----------
-// const daysBetween = (dateA, dateB) => {
-//   const msPerDay = 1000 * 60 * 60 * 24;
-//   return Math.floor(
-//     (Date.UTC(dateB.getFullYear(), dateB.getMonth(), dateB.getDate()) -
-//       Date.UTC(dateA.getFullYear(), dateA.getMonth(), dateA.getDate())) /
-//       msPerDay
-//   );
-// };
-
 const daysBetween = (dateA, dateB) => {
   if (!dateA || !dateB) return 0;
-  
+
   const a = new Date(dateA);
   const b = new Date(dateB);
-  
+
   a.setHours(0, 0, 0, 0);
   b.setHours(0, 0, 0, 0);
-  
+
   const msPerDay = 1000 * 60 * 60 * 24;
   return Math.max(0, Math.floor((b - a) / msPerDay));
 };
@@ -80,7 +71,7 @@ const getTravellerFullPackageCost = (traveller, tourData) => {
   const addon = Number(traveller.selectedAddon?.price || 0);
   const customAddons = (traveller.customAddons || []).reduce(
     (sum, a) => sum + Number(a?.price || 0),
-    0
+    0,
   );
   return Number((base + addon + customAddons).toFixed(2));
 };
@@ -108,7 +99,7 @@ const sumNumeric = (val) => {
 // ---------- MAIN CONTROLLER ----------
 export const cancelBookingController = async (req, res) => {
   try {
-    const { id: bookingId } = req.params;
+    const { tnr } = req.params;
     const {
       cancellationDate,
       cancelledTravellerIndexes = [],
@@ -120,10 +111,10 @@ export const cancelBookingController = async (req, res) => {
     } = req.body;
 
     // Validation
-    if (!bookingId || !cancellationDate) {
+    if (!tnr || !cancellationDate) {
       return res
         .status(400)
-        .json({ message: "bookingId & cancellationDate required" });
+        .json({ message: "tnr & cancellationDate required" });
     }
 
     const cancellationDt = new Date(cancellationDate);
@@ -132,7 +123,9 @@ export const cancelBookingController = async (req, res) => {
     }
 
     // Fetch booking and tour data
-    const booking = await tourBookingModel.findById(bookingId).lean();
+    const booking = await tourBookingModel
+      .findOne({ tnr: tnr.trim().toUpperCase() })
+      .lean();
     if (!booking) return res.status(404).json({ message: "Booking not found" });
 
     const tour = booking.tourId
@@ -161,7 +154,7 @@ export const cancelBookingController = async (req, res) => {
 
     const daysBefore = Math.max(
       0,
-      daysBetween(cancellationDt, new Date(tourData.lastBookingDate))
+      daysBetween(cancellationDt, new Date(tourData.lastBookingDate)),
     );
     const advanceAmount = Number(booking.payment?.advance?.amount || 0);
     const balanceAmount = Number(booking.payment?.balance?.amount || 0);
@@ -192,7 +185,7 @@ export const cancelBookingController = async (req, res) => {
     const existingIrctcPool = Number(booking.irctcCancellationPool || 0);
     const travellerIds = cancelledTravellers.map((t) => t._id).filter(Boolean);
     const hasApprovedCancellation = travellers.some(
-      (t) => t.cancelled?.byTraveller && t.cancelled?.byAdmin
+      (t) => t.cancelled?.byTraveller && t.cancelled?.byAdmin,
     );
 
     const updateBooking = { $set: { cancellationRequest: true } };
@@ -206,7 +199,7 @@ export const cancelBookingController = async (req, res) => {
         const adv = getTravellerAdvanceAmount(t, tourData);
         const pct = matchPercentage(
           daysBefore,
-          cancelRule.gv.advancePaid?.tiers
+          cancelRule.gv.advancePaid?.tiers,
         );
         gvCancellationAmount += (adv * pct) / 100;
       });
@@ -221,7 +214,7 @@ export const cancelBookingController = async (req, res) => {
       // 4. Cancelled Traveller Total Package Cost
       const cancelledFullCost = cancelledTravellers.reduce(
         (sum, t) => sum + getTravellerFullPackageCost(t, tourData),
-        0
+        0,
       );
 
       // 5. Total Cancellation Amount
@@ -230,19 +223,19 @@ export const cancelBookingController = async (req, res) => {
           gvCancellationAmount +
           irctcCancellationAmount +
           remarksAmountFinal
-        ).toFixed(2)
+        ).toFixed(2),
       );
 
       // 6. Refund Amount
       const refundAmount = Number(
-        (cancelledFullCost - totalCancellationAmount).toFixed(2)
+        (cancelledFullCost - totalCancellationAmount).toFixed(2),
       );
       const netAmountPaid = Number(
-        (advanceAmount + negativeAdminSum).toFixed(2)
+        (advanceAmount + negativeAdminSum).toFixed(2),
       );
 
       cancellationDoc = new cancellationModel({
-        bookingId: booking._id,
+        tnr: tnr.trim().toUpperCase(),
         travellerIds,
         travellerIndexes: cancelledTravellerIndexes,
         netAmountPaid,
@@ -269,7 +262,7 @@ export const cancelBookingController = async (req, res) => {
     ) {
       // 1. Net Amount Paid = Advance + (positive value from negative admin remarks)
       const netAmountPaid = Number(
-        (advanceAmount + negativeAdminSum).toFixed(2)
+        (advanceAmount + negativeAdminSum).toFixed(2),
       );
 
       // C. Sum of active travellers' full package cost (with addons)
@@ -283,7 +276,7 @@ export const cancelBookingController = async (req, res) => {
 
       const activeTravellersCost = activeTravellers.reduce(
         (sum, t) => sum + getTravellerFullPackageCost(t, tourData),
-        0
+        0,
       );
 
       // D. GV Cancellation Amount = New GV deduction (from advance rules) + existing GV pool
@@ -292,17 +285,17 @@ export const cancelBookingController = async (req, res) => {
         const adv = getTravellerAdvanceAmount(t, tourData);
         const pct = matchPercentage(
           daysBefore,
-          cancelRule.gv.advancePaid?.tiers
+          cancelRule.gv.advancePaid?.tiers,
         );
         newGvFromAdvance += (adv * pct) / 100;
       });
       const gvCancellationAmount = Number(
-        (newGvFromAdvance + existingGvPool).toFixed(2)
+        (newGvFromAdvance + existingGvPool).toFixed(2),
       );
 
       // E. IRCTC Cancellation = Provided IRCTC + existing IRCTC pool
       const irctcCancellationAmount = Number(
-        (irctcTotal + existingIrctcPool).toFixed(2)
+        (irctcTotal + existingIrctcPool).toFixed(2),
       );
 
       // F. Remarks Amount (no pool addition)
@@ -319,7 +312,7 @@ export const cancelBookingController = async (req, res) => {
           irctcCancellationAmount +
           remarksAmountFinal +
           bookingBalanceManagementAmount
-        ).toFixed(2)
+        ).toFixed(2),
       );
 
       // 3. Final calculation
@@ -328,7 +321,7 @@ export const cancelBookingController = async (req, res) => {
       const refundAmount = difference < 0 ? Math.abs(difference) : 0;
 
       cancellationDoc = new cancellationModel({
-        bookingId: booking._id,
+        tnr: tnr.trim().toUpperCase(),
         travellerIds,
         travellerIndexes: cancelledTravellerIndexes,
         netAmountPaid,
@@ -343,7 +336,7 @@ export const cancelBookingController = async (req, res) => {
             irctcCancellationAmount +
             remarksAmountFinal +
             bookingBalanceManagementAmount
-          ).toFixed(2)
+          ).toFixed(2),
         ),
         preBalanceAmount,
         updatedBalance,
@@ -364,7 +357,7 @@ export const cancelBookingController = async (req, res) => {
     ) {
       // 1. Net Amount Paid
       const netAmountPaid = Number(
-        (advanceAmount + negativeAdminSum).toFixed(2)
+        (advanceAmount + negativeAdminSum).toFixed(2),
       );
 
       // D. GV Cancellation Amount
@@ -373,7 +366,7 @@ export const cancelBookingController = async (req, res) => {
         const adv = getTravellerAdvanceAmount(t, tourData);
         const pct = matchPercentage(
           daysBefore,
-          cancelRule.gv.advancePaid?.tiers
+          cancelRule.gv.advancePaid?.tiers,
         );
         gvCancellationAmount += (adv * pct) / 100;
       });
@@ -395,19 +388,19 @@ export const cancelBookingController = async (req, res) => {
           irctcCancellationAmount +
           remarksAmountFinal +
           bookingBalanceManagementAmount
-        ).toFixed(2)
+        ).toFixed(2),
       );
 
       // 3. Updated Balance / Refund Amount
       const updatedBalanceRaw = Number(
-        (preBalanceAmount - netAmountPaid).toFixed(2)
+        (preBalanceAmount - netAmountPaid).toFixed(2),
       );
       const updatedBalance = updatedBalanceRaw >= 0 ? updatedBalanceRaw : 0;
       const refundAmount =
         updatedBalanceRaw < 0 ? Math.abs(updatedBalanceRaw) : 0;
 
       cancellationDoc = new cancellationModel({
-        bookingId: booking._id,
+        tnr: tnr.trim().toUpperCase(),
         travellerIds,
         travellerIndexes: cancelledTravellerIndexes,
         netAmountPaid,
@@ -435,7 +428,7 @@ export const cancelBookingController = async (req, res) => {
       // A. Total Package Price
       const preBalanceAmount = cancelledTravellers.reduce(
         (sum, t) => sum + getTravellerFullPackageCost(t, tourData),
-        0
+        0,
       );
 
       // B. Positive Admin Remarks
@@ -464,17 +457,17 @@ export const cancelBookingController = async (req, res) => {
           gvCancellationAmount -
           irctcCancellationAmount -
           remarksAmountFinal
-        ).toFixed(2)
+        ).toFixed(2),
       );
       const updatedBalance =
-        updatedBalanceRaw < 0 ? Math.abs(updatedBalanceRaw) : 0;
+        updatedBalanceRaw < 0 ? Math.abs(updatedBalanceRaw) : updatedBalanceRaw;
       const refundAmount = updatedBalanceRaw >= 0 ? updatedBalanceRaw : 0;
       const netAmountPaid = Number(
-        (advanceAmount + balanceAmount + negativeAdminSum).toFixed(2)
+        (advanceAmount + balanceAmount + negativeAdminSum).toFixed(2),
       );
 
       cancellationDoc = new cancellationModel({
-        bookingId: booking._id,
+        tnr: tnr.trim().toUpperCase(),
         travellerIds,
         travellerIndexes: cancelledTravellerIndexes,
         netAmountPaid,
@@ -489,7 +482,7 @@ export const cancelBookingController = async (req, res) => {
             gvCancellationAmount +
             irctcCancellationAmount +
             remarksAmountFinal
-          ).toFixed(2)
+          ).toFixed(2),
         ),
         preBalanceAmount,
         updatedBalance,
@@ -509,7 +502,7 @@ export const cancelBookingController = async (req, res) => {
       // A. Total Package Price
       const preBalanceAmount = cancelledTravellers.reduce(
         (sum, t) => sum + getTravellerFullPackageCost(t, tourData),
-        0
+        0,
       );
 
       // B. Positive Admin Remarks
@@ -540,17 +533,17 @@ export const cancelBookingController = async (req, res) => {
           irctcCancellationAmount +
           remarksAmountFinal;
       const updatedBalanceRaw = Number(
-        (preBalanceAmount - totalDeduction).toFixed(2)
+        (preBalanceAmount - totalDeduction).toFixed(2),
       );
       const updatedBalance =
         updatedBalanceRaw < 0 ? Math.abs(updatedBalanceRaw) : updatedBalanceRaw;
       const refundAmount = updatedBalanceRaw >= 0 ? updatedBalanceRaw : 0;
       const netAmountPaid = Number(
-        (advanceAmount + balanceAmount + negativeAdminSum).toFixed(2)
+        (advanceAmount + balanceAmount + negativeAdminSum).toFixed(2),
       );
 
       cancellationDoc = new cancellationModel({
-        bookingId: booking._id,
+        tnr: tnr.trim().toUpperCase(),
         travellerIds,
         travellerIndexes: cancelledTravellerIndexes,
         netAmountPaid,
@@ -579,7 +572,10 @@ export const cancelBookingController = async (req, res) => {
 
     // Save cancellation and update booking
     await cancellationDoc.save();
-    await tourBookingModel.findByIdAndUpdate(booking._id, updateBooking);
+    await tourBookingModel.updateOne(
+      { tnr: tnr.trim().toUpperCase() },
+      updateBooking,
+    );
 
     return res.json({
       success: true,

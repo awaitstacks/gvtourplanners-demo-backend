@@ -51,15 +51,18 @@ tourRouter.put("/mark-balancepaid", authTour, markOfflineBalancePaid);
 tourRouter.put("/update-traveller", authTour, updateTraveller);
 tourRouter.put("/mark-advance-receipt", authTour, markAdvanceReceiptSent);
 tourRouter.put("/mark-balance-receipt", authTour, markBalanceReceiptSent);
-tourRouter.get("/view-tour-balance/:bookingId", authTour, viewTourBalance);
-tourRouter.get("/view-tour-advance/:bookingId", authTour, viewTourAdvance);
-tourRouter.post("/update-tour-balance/:bookingId", authTour, updateTourBalance);
-tourRouter.post("/update-tour-advance/:bookingId", authTour, updateTourAdvance);
+// tourRouter.get("/view-tour-balance/:bookingId", authTour, viewTourBalance);
+tourRouter.get("/view-tour-balance/:tnr", authTour, viewTourBalance);
+// tourRouter.get("/view-tour-advance/:bookingId", authTour, viewTourAdvance);
+tourRouter.get("/view-tour-advance/:tnr", authTour, viewTourAdvance);
+// tourRouter.post("/update-tour-balance/:bookingId", authTour, updateTourBalance);
+tourRouter.post("/update-tour-balance/:tnr", authTour, updateTourBalance);
+tourRouter.post("/update-tour-advance/:tnr", authTour, updateTourAdvance);
 tourRouter.put("/mark-modify-receipt", authTour, updateModifyReceipt); // New route
-tourRouter.get("/view-booking-cancel/:bookingId", viewBooking); // New route
-tourRouter.get("/cancelled-bookings/:bookingId", getCancellationsByBooking); // New route
-tourRouter.post("/calculate-cancellation", viewBooking); // New route
-tourRouter.post("/bookings/:id/cancel", cancelBookingController);
+tourRouter.get("/view-booking-cancel/:tnr", viewBooking); // New route
+tourRouter.get("/cancelled-bookings/:tnr", getCancellationsByBooking); // New route
+// tourRouter.post("/calculate-cancellation", viewBooking); // New route
+tourRouter.post("/bookings/:tnr/cancel", cancelBookingController);
 tourRouter.post(
   "/manage-booking-balance/:bookingId",
   authTour,

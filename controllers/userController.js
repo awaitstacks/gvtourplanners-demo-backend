@@ -186,7 +186,6 @@ const updateProfile = async (req, res) => {
     res.json({ success: false, message: error.message });
   }
 };
-
 const addToTrolly = async (req, res) => {
   try {
     const {
@@ -282,7 +281,7 @@ const addToTrolly = async (req, res) => {
       }
 
       const validBoarding = selectedPackage.boardingPoints?.find(
-        (bp) => bp.stationCode === trav.boardingPoint.stationCode
+        (bp) => bp.stationCode === trav.boardingPoint.stationCode,
       );
 
       if (!validBoarding) {
@@ -310,7 +309,7 @@ const addToTrolly = async (req, res) => {
       }
 
       const validDeboarding = selectedPackage.deboardingPoints?.find(
-        (dp) => dp.stationCode === trav.deboardingPoint.stationCode
+        (dp) => dp.stationCode === trav.deboardingPoint.stationCode,
       );
 
       if (!validDeboarding) {
@@ -332,7 +331,7 @@ const addToTrolly = async (req, res) => {
       let selectedAddonData = null;
       if (trav.selectedAddon?.name) {
         const validAddon = selectedPackage.addons?.find(
-          (a) => a.name === trav.selectedAddon.name
+          (a) => a.name === trav.selectedAddon.name,
         );
         if (!validAddon) {
           return res.status(400).json({
@@ -418,10 +417,44 @@ const addToTrolly = async (req, res) => {
       });
     }
 
+    // ────────────────────────────────────────────────
+    //          TNR GENERATION – AA11AA format
+    // ────────────────────────────────────────────────
+    let tnr;
+    let attempts = 0;
+    const maxAttempts = 10;
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const digits = "0123456789";
+
+    while (attempts < maxAttempts) {
+      tnr =
+        letters.charAt(Math.floor(Math.random() * letters.length)) +
+        letters.charAt(Math.floor(Math.random() * letters.length)) +
+        digits.charAt(Math.floor(Math.random() * digits.length)) +
+        digits.charAt(Math.floor(Math.random() * digits.length)) +
+        letters.charAt(Math.floor(Math.random() * letters.length)) +
+        letters.charAt(Math.floor(Math.random() * letters.length));
+
+      const conflict = await tourBookingModel.exists({ tnr });
+      if (!conflict) {
+        break;
+      }
+      attempts++;
+    }
+
+    if (attempts >= maxAttempts) {
+      return res.status(503).json({
+        success: false,
+        message:
+          "Unable to generate unique booking reference right now. Please try again in a moment.",
+      });
+    }
+
     // Prepare booking data for tourBookingModel
     const bookingData = {
       userId,
       tourId,
+      tnr, // ← added here
       userData: {
         id: userId,
       },
@@ -478,7 +511,7 @@ const listTrolly = async (req, res) => {
       .find({ userId })
       .populate(
         "tourId",
-        "title duration titleImage advanceAmount doubleSharing tripleSharing"
+        "title duration titleImage advanceAmount doubleSharing tripleSharing",
       );
 
     res.json({ success: true, bookings });
@@ -489,26 +522,27 @@ const listTrolly = async (req, res) => {
 };
 
 ("use strict");
-
 const cancelTraveller = async (req, res) => {
   try {
-    const { bookingId, travellerId } = req.body;
+    const { tnr, travellerId } = req.body;
     const userId = req.user?._id;
 
     // Validate request body
-    if (!bookingId || !travellerId) {
+    if (!tnr || !travellerId) {
       return res.status(400).json({
         success: false,
-        message: "bookingId and travellerId are required",
+        message: "tnr and travellerId are required",
       });
     }
 
-    // Fetch the booking
-    const bookingData = await tourBookingModel.findById(bookingId);
+    // Fetch the booking by tnr
+    const bookingData = await tourBookingModel.findOne({
+      tnr: tnr.trim().toUpperCase(),
+    });
     if (!bookingData) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
@@ -516,7 +550,7 @@ const cancelTraveller = async (req, res) => {
     if (bookingData.userId.toString() !== userId.toString()) {
       return res.status(403).json({
         success: false,
-        message: "Unauthorized action",
+        message: "Unauthorized action – this booking does not belong to you",
       });
     }
 
@@ -534,7 +568,7 @@ const cancelTraveller = async (req, res) => {
 
     // Find the traveller
     const travellerIndex = bookingData.travellers.findIndex(
-      (traveller) => traveller._id.toString() === String(travellerId)
+      (traveller) => traveller._id.toString() === String(travellerId),
     );
 
     if (travellerIndex === -1) {
@@ -554,7 +588,7 @@ const cancelTraveller = async (req, res) => {
       });
     }
 
-    // Update cancellation
+    // Update cancellation flags
     traveller.cancelled = {
       ...traveller.cancelled,
       byTraveller: true,
@@ -566,6 +600,7 @@ const cancelTraveller = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: `Cancellation requested for traveller: ${traveller.firstName} ${traveller.lastName}`,
+      tnr: bookingData.tnr,
       travellerId: traveller._id,
     });
   } catch (error) {

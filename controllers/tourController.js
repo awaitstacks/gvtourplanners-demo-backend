@@ -100,12 +100,12 @@ const bookingsTour = async (req, res) => {
 
 const bookingComplete = async (req, res) => {
   try {
-    const { bookingId, tourId } = req.body; // Destructure tourId from the request body
+    const { tnr, tourId } = req.body;
 
-    if (!bookingId) {
+    if (!tnr) {
       return res.status(400).json({
         success: false,
-        message: "Booking ID is missing. Please provide a valid booking ID.",
+        message: "TNR is missing. Please provide a valid TNR.",
       });
     }
 
@@ -116,12 +116,15 @@ const bookingComplete = async (req, res) => {
       });
     }
 
-    // 1. Fetch booking
-    const booking = await tourBookingModel.findById(bookingId);
+    // 1. Fetch booking by TNR (case-insensitive)
+    const booking = await tourBookingModel.findOne({
+      tnr: tnr.trim().toUpperCase(),
+    });
+
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "No booking found with the provided booking ID.",
+        message: "No booking found with the provided TNR.",
       });
     }
 
@@ -152,7 +155,7 @@ const bookingComplete = async (req, res) => {
     );
 
     if (!allTravellersCancelledValid) {
-      // 5. Check for travellers with only traveller cancellation
+      // 5. Check for travellers with only traveller cancellation (pending approval)
       const travellerCancellationIssues = booking.travellers.filter(
         (traveller) =>
           traveller.cancelled?.byTraveller === true &&
@@ -161,20 +164,17 @@ const bookingComplete = async (req, res) => {
 
       if (travellerCancellationIssues.length > 0) {
         const cancelledTravellersList = travellerCancellationIssues
-          .map(
-            (t) =>
-              `Traveller name: ${t.firstName || "Unnamed"} ${t.lastName || ""}`,
-          )
+          .map((t) => `${t.firstName || "Unnamed"} ${t.lastName || ""}`)
           .join(", ");
 
         return res.json({
           success: false,
-          message: `Cancellation in request for the traveller: ${cancelledTravellersList}`,
+          message: `Cancellation request pending for traveller(s): ${cancelledTravellersList}`,
         });
       }
 
       // 6. Payment + Receipt checks (only if not all travellers meet cancellation conditions)
-      const { advance, balance } = booking.payment;
+      const { advance, balance } = booking.payment || {};
       const { receipts } = booking;
 
       // Advance checks
@@ -216,10 +216,11 @@ const bookingComplete = async (req, res) => {
           message: "Balance receipt has not been sent.",
         });
       }
+
       if (booking.isTripCompleted) {
         return res.json({
           success: false,
-          message: "modifed receipt has not been sent.",
+          message: "Modified receipt has not been sent.",
         });
       }
     }
@@ -233,6 +234,12 @@ const bookingComplete = async (req, res) => {
     return res.json({
       success: true,
       message: "Booking marked as completed successfully.",
+      booking: {
+        tnr: booking.tnr,
+        isBookingCompleted: booking.isBookingCompleted,
+        bookingCompletedAt: booking.bookingCompletedAt,
+        // Add only necessary fields — avoid sending full sensitive data
+      },
     });
   } catch (error) {
     console.error("bookingComplete error:", error);
@@ -242,128 +249,27 @@ const bookingComplete = async (req, res) => {
     });
   }
 };
-// const TaskBookingComplete = async (req, res) => {
-//   try {
-//     const { bookingId } = req.body;
-
-//     // 1. Validate input
-//     if (!bookingId) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Booking ID is required.",
-//       });
-//     }
-
-//     // 2. Find the booking (no population needed anymore)
-//     const booking = await tourBookingModel.findById(bookingId);
-
-//     if (!booking) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Booking not found.",
-//       });
-//     }
-
-//     // 5. Already completed?
-//     if (booking.isBookingCompleted) {
-//       return res.json({
-//         success: false,
-//         message: "This booking is already marked as completed.",
-//       });
-//     }
-
-//     // 6. Cancellation logic (unchanged)
-//     const allTravellersCancelledValid = booking.travellers.every(
-//       (traveller) =>
-//         (traveller.cancelled?.byTraveller === true &&
-//           traveller.cancelled?.byAdmin === true) ||
-//         (traveller.cancelled?.byAdmin === true &&
-//           traveller.cancelled?.byTraveller !== true)
-//     );
-
-//     if (!allTravellersCancelledValid) {
-//       const travellerCancellationIssues = booking.travellers.filter(
-//         (traveller) =>
-//           traveller.cancelled?.byTraveller === true &&
-//           traveller.cancelled?.byAdmin !== true
-//       );
-
-//       if (travellerCancellationIssues.length > 0) {
-//         const cancelledTravellersList = travellerCancellationIssues
-//           .map((t) => `${t.firstName || "Unnamed"} ${t.lastName || ""}`)
-//           .join(", ");
-
-//         return res.json({
-//           success: false,
-//           message: `Cancellation request pending for traveller(s): ${cancelledTravellersList}`,
-//         });
-//       }
-
-//       // Payment + Receipt checks (only if not fully cancelled)
-//       const { advance, balance } = booking.payment || {};
-//       const { receipts } = booking;
-
-//       if (!advance?.paid) {
-//         return res.json({ success: false, message: "Advance payment not made." });
-//       }
-//       if (!advance?.paymentVerified) {
-//         return res.json({ success: false, message: "Advance payment not verified." });
-//       }
-//       if (!receipts?.advanceReceiptSent) {
-//         return res.json({ success: false, message: "Advance receipt not sent." });
-//       }
-
-//       if (!balance?.paid) {
-//         return res.json({ success: false, message: "Balance payment not made." });
-//       }
-//       if (!balance?.paymentVerified) {
-//         return res.json({ success: false, message: "Balance payment not verified." });
-//       }
-//       if (!receipts?.balanceReceiptSent) {
-//         return res.json({ success: false, message: "Balance receipt not sent." });
-//       }
-
-//       if (booking.isTripCompleted) {
-//         return res.json({ success: false, message: "Modified receipt pending." });
-//       }
-//     }
-
-//     // 7. Mark as completed
-//     booking.isBookingCompleted = true;
-//     booking.bookingCompletedAt = new Date();
-
-//     await booking.save({ validateModifiedOnly: true });
-
-//     return res.json({
-//       success: true,
-//       message: "Booking marked as completed successfully.",
-//     });
-//   } catch (error) {
-//     console.error("bookingComplete error:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Server error while completing booking.",
-//       error: error.message,
-//     });
-//   }
-// };
 
 const TaskBookingComplete = async (req, res) => {
   try {
-    const { bookingId } = req.body;
+    const { tnr } = req.body;
 
-    if (!bookingId) {
+    if (!tnr) {
       return res.status(400).json({
         success: false,
-        message: "Booking ID is required.",
+        message: "TNR is required.",
       });
     }
 
-    const booking = await tourBookingModel.findById(bookingId);
+    // Find booking by TNR (case-insensitive)
+    const booking = await tourBookingModel.findOne({
+      tnr: tnr.trim().toUpperCase(),
+    });
+
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found.",
+        message: "Booking not found with this TNR.",
       });
     }
 
@@ -456,12 +362,17 @@ const TaskBookingComplete = async (req, res) => {
     await booking.save({ validateModifiedOnly: true });
 
     return res.status(200).json({
-      success: true, // boolean true
+      success: true,
       message: "Booking marked as completed successfully.",
-      booking,
+      booking: {
+        tnr: booking.tnr,
+        isBookingCompleted: booking.isBookingCompleted,
+        bookingCompletedAt: booking.bookingCompletedAt,
+        // Include only safe/minimal fields needed by frontend
+      },
     });
   } catch (error) {
-    console.error("bookingComplete error:", error);
+    console.error("TaskBookingComplete error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error while completing booking.",
@@ -469,15 +380,14 @@ const TaskBookingComplete = async (req, res) => {
     });
   }
 };
-
 const markOfflineAdvancePaid = async (req, res) => {
   try {
-    const { bookingId, tourId } = req.body;
+    const { tnr, tourId } = req.body;
 
-    if (!bookingId) {
+    if (!tnr) {
       return res.status(400).json({
         success: false,
-        message: "bookingId is required",
+        message: "TNR is required",
       });
     }
 
@@ -488,12 +398,15 @@ const markOfflineAdvancePaid = async (req, res) => {
       });
     }
 
-    // Fetch booking
-    const booking = await tourBookingModel.findById(bookingId);
+    // Fetch booking by TNR (case-insensitive lookup)
+    const booking = await tourBookingModel.findOne({
+      tnr: tnr.trim().toUpperCase(),
+    });
+
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
@@ -514,7 +427,6 @@ const markOfflineAdvancePaid = async (req, res) => {
     }
 
     // 2. Cancellation checks – whole-booking + individual level
-
     const totalTravellers = booking.travellers.length;
     if (totalTravellers === 0) {
       return res.status(400).json({
@@ -590,7 +502,14 @@ const markOfflineAdvancePaid = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Offline booking advance marked as paid successfully",
-      booking,
+      booking: {
+        tnr: booking.tnr,
+        _id: booking._id, // optional – keep if frontend still needs it
+        tourId: booking.tourId,
+        bookingType: booking.bookingType,
+        payment: booking.payment,
+        // ... add other fields you want to return
+      },
     });
   } catch (error) {
     console.error("markOfflineAdvancePaid error:", error);
@@ -600,15 +519,14 @@ const markOfflineAdvancePaid = async (req, res) => {
     });
   }
 };
-
 const markOfflineBalancePaid = async (req, res) => {
   try {
-    const { bookingId, tourId } = req.body; // Destructure tourId from the request body
+    const { tnr, tourId } = req.body;
 
-    if (!bookingId) {
+    if (!tnr) {
       return res.status(400).json({
         success: false,
-        message: "bookingId is required",
+        message: "TNR is required",
       });
     }
 
@@ -619,12 +537,15 @@ const markOfflineBalancePaid = async (req, res) => {
       });
     }
 
-    // Fetch booking
-    const booking = await tourBookingModel.findById(bookingId);
+    // Fetch booking by TNR (case-insensitive)
+    const booking = await tourBookingModel.findOne({
+      tnr: tnr.trim().toUpperCase(),
+    });
+
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
@@ -654,7 +575,7 @@ const markOfflineBalancePaid = async (req, res) => {
     );
 
     if (!allTravellersCancelledValid) {
-      // 3. Check for travellers with only traveller cancellation
+      // 3. Check for travellers with only traveller cancellation (pending approval)
       const travellerCancellationIssues = booking.travellers.filter(
         (traveller) =>
           traveller.cancelled?.byTraveller === true &&
@@ -671,7 +592,7 @@ const markOfflineBalancePaid = async (req, res) => {
 
         return res.status(400).json({
           success: false,
-          message: `Cancellation in request for the traveller: ${cancelledTravellersList}`,
+          message: `Cancellation in request for the traveller: ${cancelledTravellersList}. Resolve before marking balance paid.`,
         });
       }
 
@@ -720,7 +641,14 @@ const markOfflineBalancePaid = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Offline booking balance marked as paid successfully",
-      booking,
+      booking: {
+        tnr: booking.tnr,
+        // Include only necessary fields (avoid sending full sensitive data)
+        tourId: booking.tourId,
+        bookingType: booking.bookingType,
+        payment: booking.payment,
+        receipts: booking.receipts,
+      },
     });
   } catch (error) {
     console.error("markOfflineBalancePaid error:", error);
@@ -1166,12 +1094,12 @@ const updateTourProfile = async (req, res) => {
 
 const markAdvanceReceiptSent = async (req, res) => {
   try {
-    const { bookingId, tourId } = req.body; // Destructure tourId from the request body
+    const { tnr, tourId } = req.body;
 
-    if (!bookingId) {
+    if (!tnr) {
       return res.status(400).json({
         success: false,
-        message: "bookingId is required",
+        message: "TNR is required",
       });
     }
 
@@ -1182,12 +1110,15 @@ const markAdvanceReceiptSent = async (req, res) => {
       });
     }
 
-    // Fetch booking
-    const booking = await tourBookingModel.findById(bookingId);
+    // Fetch booking by TNR (case-insensitive)
+    const booking = await tourBookingModel.findOne({
+      tnr: tnr.trim().toUpperCase(),
+    });
+
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
@@ -1208,7 +1139,11 @@ const markAdvanceReceiptSent = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Advance receipt marked as sent successfully",
-      booking,
+      booking: {
+        tnr: booking.tnr,
+        receipts: booking.receipts,
+        // Add only necessary fields — avoid exposing full booking data
+      },
     });
   } catch (error) {
     console.error("markAdvanceReceiptSent error:", error);
@@ -1218,66 +1153,47 @@ const markAdvanceReceiptSent = async (req, res) => {
     });
   }
 };
-// const taskMarkAdvanceReceiptSent = async (bookingId) => {
-//   try {
-//     const { data } = await axios.put(
-//       `${backendUrl}/api/tour/task/mark-advance-receipt-sent`, // adjust route name if different
-//       { bookingId },  // ← only bookingId
-//       { headers: { ttoken } }
-//     );
-
-//     if (data.success) {
-//       // Optional: optimistic update in local state if needed
-//       setBookings((prev) =>
-//         prev.map((b) =>
-//           b._id === bookingId
-//             ? {
-//                 ...b,
-//                 receipts: {
-//                   ...b.receipts,
-//                   advanceReceiptSent: true,
-//                   advanceReceiptSentAt: new Date(),
-//                 },
-//               }
-//             : b
-//         )
-//       );
-//     }
-
-//     return data;
-//   } catch (error) {
-//     console.error("markAdvanceReceiptSent error:", error);
-//     return {
-//       success: false,
-//       message: error.response?.data?.message || "Failed to mark advance receipt sent",
-//     };
-//   }
-// };
 
 const taskMarkAdvanceReceiptSent = async (req, res) => {
   try {
-    const { bookingId } = req.body;
-    if (!bookingId) {
-      return res
-        .status(400)
-        .json({ success: false, message: "bookingId is required" });
+    const { tnr } = req.body;
+
+    if (!tnr) {
+      return res.status(400).json({
+        success: false,
+        message: "TNR is required",
+      });
     }
 
-    const booking = await tourBookingModel.findById(bookingId);
+    // Find booking by TNR (case-insensitive)
+    const booking = await tourBookingModel.findOne({
+      tnr: tnr.trim().toUpperCase(),
+    });
+
     if (!booking) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Booking not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found with this TNR",
+      });
     }
+
+    // Optional: you could add authorization check here if needed
+    // e.g. check if req.user can modify this booking
 
     booking.receipts.advanceReceiptSent = true;
     booking.receipts.advanceReceiptSentAt = new Date();
+
     await booking.save({ validateModifiedOnly: true });
 
     return res.status(200).json({
-      success: true, // boolean true
+      success: true,
       message: "Advance receipt marked as sent successfully",
-      booking,
+      booking: {
+        tnr: booking.tnr,
+        _id: booking._id, // optional - include if frontend still needs it
+        receipts: booking.receipts,
+        // You can add more fields if needed
+      },
     });
   } catch (error) {
     console.error("taskMarkAdvanceReceiptSent error:", error);
@@ -1287,15 +1203,14 @@ const taskMarkAdvanceReceiptSent = async (req, res) => {
     });
   }
 };
-
 const markBalanceReceiptSent = async (req, res) => {
   try {
-    const { bookingId, tourId } = req.body; // Destructure tourId from the request body
+    const { tnr, tourId } = req.body;
 
-    if (!bookingId) {
+    if (!tnr) {
       return res.status(400).json({
         success: false,
-        message: "bookingId is required",
+        message: "TNR is required",
       });
     }
 
@@ -1306,12 +1221,15 @@ const markBalanceReceiptSent = async (req, res) => {
       });
     }
 
-    // Fetch booking
-    const booking = await tourBookingModel.findById(bookingId);
+    // Fetch booking by TNR (case-insensitive)
+    const booking = await tourBookingModel.findOne({
+      tnr: tnr.trim().toUpperCase(),
+    });
+
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
@@ -1332,7 +1250,11 @@ const markBalanceReceiptSent = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Balance receipt marked as sent successfully",
-      booking,
+      booking: {
+        tnr: booking.tnr,
+        receipts: booking.receipts,
+        // Add only necessary fields — avoid exposing full booking data
+      },
     });
   } catch (error) {
     console.error("markBalanceReceiptSent error:", error);
@@ -1342,64 +1264,32 @@ const markBalanceReceiptSent = async (req, res) => {
     });
   }
 };
-// const taskMarkBalanceReceiptSent = async (req, res) => {
-//   try {
-//     const { bookingId } = req.body;
-
-//     if (!bookingId) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "bookingId is required",
-//       });
-//     }
-
-//     // Fetch booking
-//     const booking = await tourBookingModel.findById(bookingId);
-//     if (!booking) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Booking not found",
-//       });
-//     }
-
-//     // Mark receipt as sent
-//     booking.receipts.balanceReceiptSent = true;
-//     booking.receipts.balanceReceiptSentAt = new Date();
-
-//     await booking.save({ validateModifiedOnly: true });
-
-//     return res.status(200).json({
-//       success: true,
-//       message: "Balance receipt marked as sent successfully",
-//       booking,
-//     });
-//   } catch (error) {
-//     console.error("markBalanceReceiptSent error:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || "Something went wrong",
-//     });
-//   }
-// };
 
 const taskMarkBalanceReceiptSent = async (req, res) => {
   try {
-    const { bookingId } = req.body;
+    const { tnr } = req.body;
 
-    if (!bookingId) {
+    if (!tnr) {
       return res.status(400).json({
         success: false,
-        message: "bookingId is required",
+        message: "TNR is required",
       });
     }
 
-    const booking = await tourBookingModel.findById(bookingId);
+    // Find booking by TNR (case-insensitive lookup)
+    const booking = await tourBookingModel.findOne({
+      tnr: tnr.trim().toUpperCase(),
+    });
+
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
+
+    // Optional: Add authorization check if needed
+    // Example: if (req.user.role !== 'admin' && booking.userId.toString() !== req.user._id.toString()) { ... }
 
     // Mark receipt as sent
     booking.receipts.balanceReceiptSent = true;
@@ -1408,9 +1298,13 @@ const taskMarkBalanceReceiptSent = async (req, res) => {
     await booking.save({ validateModifiedOnly: true });
 
     return res.status(200).json({
-      success: true, // boolean true
+      success: true,
       message: "Balance receipt marked as sent successfully",
-      booking,
+      booking: {
+        tnr: booking.tnr,
+        receipts: booking.receipts,
+        // Add only necessary fields — avoid sending full sensitive data
+      },
     });
   } catch (error) {
     console.error("taskMarkBalanceReceiptSent error:", error);
@@ -1420,39 +1314,42 @@ const taskMarkBalanceReceiptSent = async (req, res) => {
     });
   }
 };
-
 const viewTourBalance = async (req, res) => {
   try {
-    const { bookingId } = req.params; // Using params for GET request
+    const { tnr } = req.params;
 
-    // Validate input
-    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+    // ─── Validate TNR ──────────────────────────────────────────────────
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
       return res.status(400).json({
         success: false,
-        message: "Invalid or missing booking ID",
+        message: "Valid 6-character TNR is required",
       });
     }
 
-    // Find the booking by ID, selecting only relevant fields
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    // ─── Find booking by TNR ───────────────────────────────────────────
     const booking = await tourBookingModel
-      .findById(bookingId)
-      .select("payment.advance payment.balance adminRemarks")
+      .findOne({ tnr: normalizedTnr })
+      .select("tnr payment.advance payment.balance adminRemarks")
       .lean();
 
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: `No booking found with TNR: ${normalizedTnr}`,
       });
     }
 
+    // ─── Response ──────────────────────────────────────────────────────
     return res.status(200).json({
       success: true,
       message: "Booking balance details retrieved successfully",
       data: {
-        bookingId,
-        advance: booking.payment.advance,
-        balance: booking.payment.balance,
+        tnr: booking.tnr, // return the canonical uppercase version
+        bookingId: booking._id.toString(), // optional: include for internal reference
+        advance: booking.payment?.advance || {},
+        balance: booking.payment?.balance || {},
         adminRemarks: booking.adminRemarks || [],
       },
     });
@@ -1468,26 +1365,30 @@ const viewTourBalance = async (req, res) => {
 
 const viewTourAdvance = async (req, res) => {
   try {
-    const { bookingId } = req.params; // Using params for GET request
+    const { tnr } = req.params; // TNR from URL params
 
-    // Validate input
-    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+    // Validate TNR
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
       return res.status(400).json({
         success: false,
-        message: "Invalid or missing booking ID",
+        message: "Valid 6-character TNR is required",
       });
     }
 
-    // Find the booking by ID, selecting only relevant advance-related fields
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    // Find booking by TNR, select only needed fields
     const booking = await tourBookingModel
-      .findById(bookingId)
-      .select("payment.advance payment.balance advanceAdminRemarks ")
+      .findOne({ tnr: normalizedTnr })
+      .select(
+        "payment.advance payment.balance advanceAdminRemarks isTripCompleted",
+      )
       .lean();
 
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
@@ -1495,7 +1396,7 @@ const viewTourAdvance = async (req, res) => {
       success: true,
       message: "Advance payment details and remarks retrieved successfully",
       data: {
-        bookingId,
+        tnr: normalizedTnr,
         advance: {
           amount: booking.payment.advance.amount,
           paid: booking.payment.advance.paid,
@@ -1518,9 +1419,19 @@ const viewTourAdvance = async (req, res) => {
 
 const updateTourBalance = async (req, res) => {
   try {
-    const { bookingId } = req.params;
+    const { tnr } = req.params;
 
-    // --- INPUT VALIDATION ---
+    // ─── INPUT VALIDATION ─ TNR ────────────────────────────────────────
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid 6-character TNR is required in the URL",
+      });
+    }
+
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    // ─── BODY VALIDATION ───────────────────────────────────────────────
     if (!req.body || !req.body.updates) {
       return res.status(400).json({
         success: false,
@@ -1529,13 +1440,6 @@ const updateTourBalance = async (req, res) => {
     }
 
     const { updates } = req.body;
-
-    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or missing booking ID",
-      });
-    }
 
     if (!Array.isArray(updates) || updates.length === 0) {
       return res.status(400).json({
@@ -1550,7 +1454,7 @@ const updateTourBalance = async (req, res) => {
       if (amount === undefined || typeof amount !== "number") {
         return res.status(400).json({
           success: false,
-          message: "Each update must include a valid amount",
+          message: "Each update must include a valid numeric amount",
         });
       }
 
@@ -1562,16 +1466,17 @@ const updateTourBalance = async (req, res) => {
       }
     }
 
-    // --- FETCH BOOKING ---
-    const booking = await tourBookingModel.findById(bookingId);
+    // ─── FIND BOOKING BY TNR ───────────────────────────────────────────
+    const booking = await tourBookingModel.findOne({ tnr: normalizedTnr });
+
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: `No booking found with TNR: ${normalizedTnr}`,
       });
     }
 
-    // NEW BLOCK #1: If cancellationRequest is true → Full cancellation pending
+    // ─── BUSINESS RULES / BLOCKING CONDITIONS ──────────────────────────
     if (booking.cancellationRequest === true) {
       return res.status(400).json({
         success: false,
@@ -1580,7 +1485,6 @@ const updateTourBalance = async (req, res) => {
       });
     }
 
-    // NEW BLOCK #2: If BOTH advance and balance are NOT paid → Block updates
     const advancePaid = booking.payment?.advance?.paid === true;
     const balancePaid = booking.payment?.balance?.paid === true;
 
@@ -1592,7 +1496,6 @@ const updateTourBalance = async (req, res) => {
       });
     }
 
-    // Existing: Block if traveller applied for cancellation
     const hasTravellerAppliedForCancellation = booking.travellers.some(
       (t) =>
         t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === false,
@@ -1606,7 +1509,6 @@ const updateTourBalance = async (req, res) => {
       });
     }
 
-    // Existing: Block if both already paid
     if (advancePaid && balancePaid) {
       return res.status(400).json({
         success: false,
@@ -1614,7 +1516,6 @@ const updateTourBalance = async (req, res) => {
       });
     }
 
-    // Existing: All travellers cancelled by admin
     const allTravellersCancelledByAdmin = booking.travellers.every(
       (t) => t.cancelled?.byAdmin === true,
     );
@@ -1627,7 +1528,6 @@ const updateTourBalance = async (req, res) => {
       });
     }
 
-    // Existing: Prevent negative balance
     const currentBalance = booking.payment?.balance?.amount || 0;
     const totalDeduction = updates
       .filter((u) => u.amount < 0)
@@ -1640,31 +1540,30 @@ const updateTourBalance = async (req, res) => {
       });
     }
 
-    // --- APPLY UPDATES SAFELY ---
+    // ─── APPLY UPDATES ─────────────────────────────────────────────────
     for (const update of updates) {
       const { remarks, amount } = update;
 
-      // Update balance
       booking.payment.balance.amount += amount;
 
-      // Add to admin remarks
       booking.adminRemarks.push({
-        remark: remarks?.trim() || "No remark",
+        remark: remarks?.trim() || "No remark provided",
         amount,
         addedAt: new Date(),
       });
     }
 
-    // Mark trip as completed
     booking.isTripCompleted = true;
 
     await booking.save();
 
+    // ─── SUCCESS RESPONSE ──────────────────────────────────────────────
     return res.status(200).json({
       success: true,
       message: "Balance and admin remarks updated successfully",
       data: {
-        bookingId: booking._id,
+        tnr: booking.tnr,
+        bookingId: booking._id.toString(), // still included for reference
         updatedBalance: booking.payment.balance.amount,
         adminRemarks: booking.adminRemarks,
         isTripCompleted: booking.isTripCompleted,
@@ -1682,33 +1581,34 @@ const updateTourBalance = async (req, res) => {
 
 const updateTourAdvance = async (req, res) => {
   try {
-    const { bookingId } = req.params;
+    const { tnr } = req.params;
 
-    // --- INPUT VALIDATION ---
-    if (!req.body || !req.body.updates) {
+    // Validate TNR
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
       return res.status(400).json({
         success: false,
-        message: "Request body is missing or does not contain updates",
+        message: "Valid 6-character TNR is required",
       });
     }
 
-    const { updates } = req.body;
+    const normalizedTnr = tnr.trim().toUpperCase();
 
-    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or missing booking ID",
-      });
-    }
-
-    if (!Array.isArray(updates) || updates.length === 0) {
+    // Validate body
+    if (
+      !req.body ||
+      !req.body.updates ||
+      !Array.isArray(req.body.updates) ||
+      req.body.updates.length === 0
+    ) {
       return res.status(400).json({
         success: false,
         message: "Updates must be a non-empty array",
       });
     }
 
-    // Validate each update item
+    const { updates } = req.body;
+
+    // Validate each update
     for (const update of updates) {
       const { remarks, amount } = update;
 
@@ -1735,16 +1635,16 @@ const updateTourAdvance = async (req, res) => {
       }
     }
 
-    // --- FETCH BOOKING ---
-    const booking = await tourBookingModel.findById(bookingId);
+    // Fetch booking by TNR
+    const booking = await tourBookingModel.findOne({ tnr: normalizedTnr });
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
-    // BLOCK: If advance is already marked as PAID → BLOCK COMPLETELY
+    // BLOCK: Advance already paid
     if (booking.payment.advance.paid === true) {
       return res.status(400).json({
         success: false,
@@ -1767,7 +1667,7 @@ const updateTourAdvance = async (req, res) => {
       });
     }
 
-    // BLOCK: If both advance and balance are already fully paid
+    // BLOCK: Both advance & balance already fully paid
     const advanceFullyPaid =
       booking.payment.advance.paid === true &&
       booking.payment.advance.paymentVerified === true;
@@ -1781,7 +1681,7 @@ const updateTourAdvance = async (req, res) => {
       });
     }
 
-    // BLOCK: If trip is already marked as completed
+    // BLOCK: Trip already completed
     if (booking.isTripCompleted === true) {
       return res.status(400).json({
         success: false,
@@ -1789,7 +1689,7 @@ const updateTourAdvance = async (req, res) => {
       });
     }
 
-    // --- APPLY UPDATES: Shift from Advance to Balance ---
+    // Apply updates: Shift from Advance to Balance
     for (const update of updates) {
       const { remarks, amount } = update;
 
@@ -1804,25 +1704,23 @@ const updateTourAdvance = async (req, res) => {
         booking.payment.balance.paidAt = null;
       }
 
-      // Record in advanceAdminRemarks
+      // Record remark
       booking.advanceAdminRemarks.push({
         remark: remarks?.trim() || "Amount shifted from advance to balance",
-        amount: amount,
+        amount,
         addedAt: new Date(),
       });
     }
 
-    // CRITICAL FIX: Tell Mongoose that the array was modified
+    // Mark modified fields
     booking.markModified("advanceAdminRemarks");
-
-    // Also mark nested payment fields as modified (good practice)
     booking.markModified("payment.advance.amount");
     booking.markModified("payment.balance");
 
     // Mark trip as completed
     booking.isTripCompleted = true;
 
-    // Save the booking
+    // Save
     await booking.save();
 
     return res.status(200).json({
@@ -1830,7 +1728,7 @@ const updateTourAdvance = async (req, res) => {
       message:
         "Advance amount successfully shifted to balance and trip marked as completed",
       data: {
-        bookingId: booking._id,
+        tnr: normalizedTnr,
         updatedAdvanceAmount: booking.payment.advance.amount,
         updatedBalanceAmount: booking.payment.balance.amount,
         advanceAdminRemarks: booking.advanceAdminRemarks,
@@ -1848,12 +1746,12 @@ const updateTourAdvance = async (req, res) => {
 };
 const updateModifyReceipt = async (req, res) => {
   try {
-    const { bookingId, tourId } = req.body;
+    const { tnr, tourId } = req.body;
 
-    if (!bookingId) {
+    if (!tnr) {
       return res.status(400).json({
         success: false,
-        message: "bookingId is required",
+        message: "TNR is required",
       });
     }
 
@@ -1864,12 +1762,15 @@ const updateModifyReceipt = async (req, res) => {
       });
     }
 
-    // Fetch booking
-    const booking = await tourBookingModel.findById(bookingId);
+    // Fetch booking by TNR (case-insensitive lookup)
+    const booking = await tourBookingModel.findOne({
+      tnr: tnr.trim().toUpperCase(),
+    });
+
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
@@ -1881,7 +1782,7 @@ const updateModifyReceipt = async (req, res) => {
       });
     }
 
-    // Set isTripCompleted to false
+    // Set isTripCompleted to false (mark as not completed)
     booking.isTripCompleted = false;
 
     // Save the updated booking
@@ -1890,7 +1791,11 @@ const updateModifyReceipt = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Trip completion status marked as not completed successfully",
-      booking,
+      booking: {
+        tnr: booking.tnr,
+        isTripCompleted: booking.isTripCompleted,
+        // Only return minimal necessary fields
+      },
     });
   } catch (error) {
     console.error("updateModifyReceipt error:", error);
@@ -1903,32 +1808,45 @@ const updateModifyReceipt = async (req, res) => {
 
 const taskMarkModifyReceipt = async (req, res) => {
   try {
-    const { bookingId } = req.body;
+    const { tnr } = req.body;
 
-    if (!bookingId) {
+    if (!tnr) {
       return res.status(400).json({
         success: false,
-        message: "bookingId is required",
+        message: "TNR is required",
       });
     }
 
-    const booking = await tourBookingModel.findById(bookingId);
+    // Find booking by TNR (case-insensitive lookup)
+    const booking = await tourBookingModel.findOne({
+      tnr: tnr.trim().toUpperCase(),
+    });
+
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
-    // Set isTripCompleted to false
+    // Optional: Add authorization check if needed
+    // Example: if (req.user.role !== 'admin' && booking.userId.toString() !== req.user._id.toString()) {
+    //   return res.status(403).json({ success: false, message: "Unauthorized" });
+    // }
+
+    // Set isTripCompleted to false (meaning trip is not completed yet)
     booking.isTripCompleted = false;
 
     await booking.save({ validateModifiedOnly: true });
 
     return res.status(200).json({
-      success: true, // boolean true
+      success: true,
       message: "Trip completion status marked as not completed successfully",
-      booking,
+      booking: {
+        tnr: booking.tnr,
+        isTripCompleted: booking.isTripCompleted,
+        // Include only necessary fields — avoid sending full sensitive data
+      },
     });
   } catch (error) {
     console.error("taskMarkModifyReceipt error:", error);
@@ -1942,7 +1860,7 @@ const taskMarkModifyReceipt = async (req, res) => {
 // controllers/tourController.js
 const viewBooking = async (req, res) => {
   try {
-    const { bookingId } = req.params;
+    const { tnr } = req.params; // Changed from bookingId to tnr
     const tToken = req.header("ttoken");
 
     if (!tToken) {
@@ -1960,54 +1878,75 @@ const viewBooking = async (req, res) => {
         .json({ success: false, message: "Invalid token." });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
-      return res.status(400).json({ success: false, message: "Invalid ID" });
+    // Validate TNR format (6 uppercase letters/digits)
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing TNR (must be exactly 6 characters)",
+      });
     }
 
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    // Find booking by TNR
     const booking = await tourBookingModel
-      .findById(bookingId)
+      .findOne({ tnr: normalizedTnr })
       .populate("userId", "name email mobile")
       .lean();
 
-    if (!booking)
-      return res.status(404).json({ success: false, message: "Not found" });
+    if (!booking) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Booking not found with this TNR" });
+    }
 
+    // Fetch full tour data
     const tour = await tourModel.findById(booking.tourId).lean();
-    if (!tour)
+    if (!tour) {
       return res
         .status(404)
         .json({ success: false, message: "Tour not found" });
+    }
 
     booking.tourFull = tour;
 
-    res.json({ success: true, data: booking });
+    return res.json({
+      success: true,
+      data: booking,
+    });
   } catch (error) {
     console.error("viewBooking error:", error);
-    res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching booking details.",
+      error: error.message,
+    });
   }
 };
 const getCancellationsByBooking = async (req, res) => {
-  const { bookingId } = req.params;
-  const { limit = 20 } = req.query;
-
-  // Validate bookingId
-  if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Invalid bookingId" });
-  }
-
-  const numericLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 200);
-
   try {
-    // find cancellations for this booking
+    const { tnr } = req.params;
+    const { limit = 20 } = req.query;
+
+    // Validate TNR
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid 6-character TNR is required",
+      });
+    }
+
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    const numericLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 200);
+
+    // Find cancellations for this booking using TNR
     const cancellations = await cancellationModel
-      .find({ bookingId: bookingId })
+      .find({ tnr: normalizedTnr }) // ← changed from bookingId to tnr
       .sort({ createdAt: -1 })
       .limit(numericLimit)
       .lean();
 
-    // return as array
     return res.status(200).json({
       success: true,
       count: cancellations.length,
@@ -2021,7 +1960,6 @@ const getCancellationsByBooking = async (req, res) => {
     });
   }
 };
-
 const updateBookingBalance = async (req, res) => {
   try {
     const { bookingId } = req.params;
@@ -2347,8 +2285,8 @@ const updateBookingBalance = async (req, res) => {
       if (travellerAdded) {
         appliedCase = "Case 3 - travellers added";
         updatableAdvance = updatedAdvance = C;
-        updatableBalance = I + J + K;
-        updatedBalance = I + J + K;
+        updatableBalance = T + D + E + G + H; // ← YOUR NEW FORMULA
+        updatedBalance = updatableBalance - (updatedAdvance + F); // ← YOUR NEW FORMULA
       } else if (countSame) {
         // Case 1 - same count, existing travellers edited
         appliedCase = "Case 1 - same count (existing edited)";
@@ -3136,25 +3074,27 @@ const taskMarkCancellationReceipt = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { bookingId } = req.body;
+    const { tnr } = req.body;
 
-    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
       return res.status(400).json({
         success: false,
-        message: "Valid bookingId is required",
+        message: "Valid 6-character TNR is required",
       });
     }
 
-    const updatedBooking = await tourBookingModel.findByIdAndUpdate(
-      bookingId,
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    const updatedBooking = await tourBookingModel.updateOne(
+      { tnr: normalizedTnr },
       { $set: { cancellationReceipt: false } },
-      { new: true, session },
+      { session, new: true },
     );
 
-    if (!updatedBooking) {
+    if (updatedBooking.matchedCount === 0) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
@@ -3164,13 +3104,13 @@ const taskMarkCancellationReceipt = async (req, res) => {
       success: true,
       message: "Cancellation receipt marked successfully",
       data: {
-        bookingId,
-        cancellationReceipt: updatedBooking.cancellationReceipt,
+        tnr: normalizedTnr,
+        cancellationReceipt: false,
       },
     });
   } catch (error) {
     await session.abortTransaction();
-    console.error("markCancellationReceipt error:", error);
+    console.error("taskMarkCancellationReceipt error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",
@@ -3181,31 +3121,32 @@ const taskMarkCancellationReceipt = async (req, res) => {
   }
 };
 
-// Mark manage booking receipt as generated/sent
 const taskMarkManageBookingReceipt = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const { bookingId } = req.body;
+    const { tnr } = req.body;
 
-    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
       return res.status(400).json({
         success: false,
-        message: "Valid bookingId is required",
+        message: "Valid 6-character TNR is required",
       });
     }
 
-    const updatedBooking = await tourBookingModel.findByIdAndUpdate(
-      bookingId,
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    const updatedBooking = await tourBookingModel.updateOne(
+      { tnr: normalizedTnr },
       { $set: { manageBookingReceipt: false } },
-      { new: true, session },
+      { session, new: true },
     );
 
-    if (!updatedBooking) {
+    if (updatedBooking.matchedCount === 0) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
@@ -3215,13 +3156,13 @@ const taskMarkManageBookingReceipt = async (req, res) => {
       success: true,
       message: "Manage booking receipt marked successfully",
       data: {
-        bookingId,
-        manageBookingReceipt: updatedBooking.manageBookingReceipt,
+        tnr: normalizedTnr,
+        manageBookingReceipt: false,
       },
     });
   } catch (error) {
     await session.abortTransaction();
-    console.error("markManageBookingReceipt error:", error);
+    console.error("taskMarkManageBookingReceipt error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",
@@ -3231,7 +3172,6 @@ const taskMarkManageBookingReceipt = async (req, res) => {
     session.endSession();
   }
 };
-
 const addTour = async (req, res) => {
   try {
     const {

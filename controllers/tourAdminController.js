@@ -11,7 +11,120 @@ import cancelRuleModel from "../models/cancelRuleModel.js";
 import cancellationModel from "../models/cancellationModel.js";
 import tourRoomAllocationModel from "../models/roomModel.js";
 import manageBookingModel from "../models/manageBookingModel.js";
+// controllers/adminController.js   (or wherever your admin controllers live)
 
+// Helper function to generate 6-char TNR in format: AAA9AA
+function generateTNR() {
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const digits = "0123456789";
+
+  // Position 1-2: uppercase letters
+  let code =
+    letters.charAt(Math.floor(Math.random() * letters.length)) +
+    letters.charAt(Math.floor(Math.random() * letters.length));
+
+  // Position 3-4: digits
+  code +=
+    digits.charAt(Math.floor(Math.random() * digits.length)) +
+    digits.charAt(Math.floor(Math.random() * digits.length));
+
+  // Position 5-6: uppercase letters
+  code +=
+    letters.charAt(Math.floor(Math.random() * letters.length)) +
+    letters.charAt(Math.floor(Math.random() * letters.length));
+
+  return code;
+}
+
+async function generateMissingTNRs(req, res) {
+  try {
+    // 1. Find all bookings without tnr
+    const bookingsWithoutTNR = await tourBookingModel
+      .find({ tnr: { $exists: false } })
+      .select("_id tnr bookingDate contact.email userId")
+      .lean();
+
+    const count = bookingsWithoutTNR.length;
+
+    if (count === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No bookings are missing TNR. All bookings already have one.",
+        processed: 0,
+        totalChecked: await tourBookingModel.countDocuments(),
+      });
+    }
+
+    console.log(`Found ${count} bookings without TNR → starting generation...`);
+
+    let successCount = 0;
+    let collisionCount = 0;
+    let failed = [];
+
+    // Process in smaller batches to avoid memory issues
+    for (const booking of bookingsWithoutTNR) {
+      let attempts = 0;
+      let tnr = null;
+
+      while (attempts < 15) {
+        const candidate = generateTNR();
+
+        // Check if this TNR already exists
+        const conflict = await tourBookingModel.exists({ tnr: candidate });
+
+        if (!conflict) {
+          tnr = candidate;
+          break;
+        }
+
+        collisionCount++;
+        attempts++;
+      }
+
+      if (!tnr) {
+        failed.push({
+          bookingId: booking._id.toString(),
+          reason: "Could not generate unique TNR after 15 attempts",
+        });
+        continue;
+      }
+
+      // Update the booking
+      await tourBookingModel.updateOne({ _id: booking._id }, { $set: { tnr } });
+
+      successCount++;
+
+      // Optional: log first few for debugging
+      if (successCount <= 5) {
+        console.log(`Assigned TNR ${tnr} to booking ${booking._id}`);
+      }
+    }
+
+    const message =
+      successCount === count
+        ? `Successfully generated TNR for all ${count} missing bookings.`
+        : `Processed ${count} bookings: ${successCount} updated, ${failed.length} failed.`;
+
+    return res.status(200).json({
+      success: true,
+      message,
+      summary: {
+        totalMissing: count,
+        successfullyUpdated: successCount,
+        collisionsDuringGeneration: collisionCount,
+        failed: failed.length,
+      },
+      failedBookings: failed.length > 0 ? failed : undefined,
+    });
+  } catch (error) {
+    console.error("generateMissingTNRs failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to generate missing TNRs",
+      error: error.message,
+    });
+  }
+}
 //API for the admin login
 const loginAdmin = async (req, res) => {
   try {
@@ -588,11 +701,9 @@ const upsertCancellationChart = async (req, res) => {
   }
 };
 
-//GET THE PENDING CANCELLATIONS
 const getCancellations = async (req, res) => {
   try {
     // 1. Find cancellation docs that are RAISED but NOT YET APPROVED
-    //    (approvedBy must be explicitly false or missing)
     const pendingCancellations = await cancellationModel
       .find({
         raisedBy: true,
@@ -605,15 +716,15 @@ const getCancellations = async (req, res) => {
       return res.json({ success: true, data: [] });
     }
 
-    // 2. Extract booking IDs
-    const bookingIds = [
-      ...new Set(pendingCancellations.map((c) => c.bookingId).filter(Boolean)),
+    // 2. Extract TNRs (instead of bookingIds)
+    const tnrs = [
+      ...new Set(pendingCancellations.map((c) => c.tnr).filter(Boolean)),
     ];
 
-    // 3. Fetch bookings + filter travellers on the server side
+    // 3. Fetch bookings by TNR + filter travellers on server side
     const bookings = await tourBookingModel
-      .find({ _id: { $in: bookingIds } })
-      .select("travellers cancelled")
+      .find({ tnr: { $in: tnrs } })
+      .select("tnr travellers cancelled")
       .lean();
 
     // Helper: does the booking contain a traveller cancelled **by traveller only** OR **by admin only**?
@@ -622,26 +733,28 @@ const getCancellations = async (req, res) => {
         (t) =>
           (t.cancelled?.byTraveller === true &&
             t.cancelled?.byAdmin === false) ||
-          (t.cancelled?.byAdmin === true && t.cancelled?.byTraveller === false),
+          (t.cancelled?.byAdmin === true &&
+            t.cancelled?.byTraveller === false) ||
+          (t.cancelled?.byAdmin === true && t.cancelled?.byTraveller === true),
       );
     };
 
-    const validBookingIds = bookings
+    const validTnrs = bookings
       .filter(hasValidTravellerCancellation)
-      .map((b) => b._id.toString());
+      .map((b) => b.tnr);
 
-    // 4. Keep only cancellation docs whose booking passed the traveller check
+    // 4. Keep only cancellation docs whose TNR passed the traveller check
     const result = pendingCancellations.filter(
-      (c) => c.bookingId && validBookingIds.includes(c.bookingId.toString()),
+      (c) => c.tnr && validTnrs.includes(c.tnr),
     );
 
-    // 5. OPTIONAL: Populate booking & traveller data for the front-end
+    // 5. Populate booking & traveller data for the frontend (using TNR)
     const enriched = await Promise.all(
       result.map(async (c) => {
         const booking = await tourBookingModel
-          .findById(c.bookingId)
+          .findOne({ tnr: c.tnr })
           .select(
-            "userId tourId travellers contact bookingDate payment adminRemarks",
+            "tnr userId tourId travellers contact bookingDate payment adminRemarks",
           )
           .populate({
             path: "travellers",
@@ -665,239 +778,26 @@ const getCancellations = async (req, res) => {
   }
 };
 
-//APPROVE CANCELLATION IN THE CANCELLATION APPROVALS PAGE
-// const approveCancellation = async (req, res) => {
-//   const session = await mongoose.startSession();
-//   session.startTransaction();
-
-//   try {
-//     const { bookingId, cancellationId } = req.body;
-
-//     if (!bookingId || !cancellationId) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "bookingId and cancellationId are required",
-//       });
-//     }
-
-//     if (
-//       !mongoose.Types.ObjectId.isValid(bookingId) ||
-//       !mongoose.Types.ObjectId.isValid(cancellationId)
-//     ) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid bookingId or cancellationId format",
-//       });
-//     }
-
-//     const cancellation = await cancellationModel
-//       .findOne({
-//         _id: cancellationId,
-//         bookingId,
-//         raisedBy: true,
-//         approvedBy: { $ne: true },
-//       })
-//       .session(session);
-
-//     if (!cancellation) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Cancellation request not found or already processed",
-//       });
-//     }
-
-//     const booking = await tourBookingModel
-//       .findById(bookingId)
-//       .select(
-//         "travellers gvCancellationPool irctcCancellationPool cancellationRequest payment contact.mobile"
-//       )
-//       .session(session);
-
-//     if (!booking) throw new Error("Booking not found");
-
-//     // === PENDING TRAVELLERS ===
-//     const pendingTravellers = (booking.travellers || []).filter(
-//       (t) => t.cancelled?.byTraveller === true && t.cancelled?.byAdmin !== true
-//     );
-
-//     const pendingCount = pendingTravellers.length;
-//     const requestedCount = (cancellation.travellerIds || []).length;
-
-//     // Build name list
-//     const getName = (t) =>
-//       `${t.title || ""} ${t.firstName || ""} ${t.lastName || ""}`.trim() ||
-//       "Unknown Traveller";
-
-//     const pendingNames = pendingTravellers.map(getName);
-//     const requestedNames = (cancellation.travellerIds || []).map((id) => {
-//       const t = booking.travellers.find(
-//         (t) => t._id.toString() === id.toString()
-//       );
-//       return t ? getName(t) : `Deleted Traveller (ID: ${id})`;
-//     });
-
-//     // === COUNT MISMATCH ===
-//     if (pendingCount !== requestedCount) {
-//       return res.status(400).json({
-//         success: false,
-//         message: `CANCELLATION BLOCKED: Traveller
-
-// User requested : ${pendingCount} traveller's
-// Admin calculated : ${requestedCount} traveller's
-
-// User requested: ${pendingNames.join(", ") || "None"}
-// But Admin worked: ${requestedNames.join(", ") || "None"}
-
-// Kindly reject this and raise new request`,
-//         details: {
-//           pendingTravellers: pendingTravellers.map((t) => ({
-//             name: getName(t),
-//             id: t._id.toString(),
-//             age: t.age,
-//             gender: t.gender,
-//           })),
-//           requestedTravellers: requestedNames,
-//           pendingCount,
-//           requestedCount,
-//         },
-//       });
-//     }
-
-//     // === ID MISMATCH ===
-//     const pendingIds = pendingTravellers.map((t) => t._id.toString()).sort();
-//     const requestIds = (cancellation.travellerIds || [])
-//       .map((id) => id.toString())
-//       .sort();
-
-//     const idsMatch =
-//       pendingIds.length === requestIds.length &&
-//       pendingIds.every((id, i) => id === requestIds[i]);
-
-//     if (!idsMatch) {
-//       return res.status(400).json({
-//         success: false,
-//         message: `SECURITY BLOCKED: Wrong travellers detected!
-
-// User requested:
-// → ${pendingNames.join("\n→ ") || "None"}
-
-// But Admin worked:
-// → ${requestedNames.join("\n→ ") || "None"}
-
-// Kindly reject this and raise new request`,
-//         details: {
-//           pendingTravellers: pendingTravellers.map((t) => ({
-//             name: getName(t),
-//             id: t._id.toString(),
-//           })),
-//           requestedTravellers: requestedNames.map((name, i) => ({
-//             name,
-//             id: requestIds[i],
-//           })),
-//           securityNote: "Only exact matching travellers can be cancelled",
-//         },
-//       });
-//     }
-
-//     // === ALL GOOD — APPROVE ===
-//     const gvAdd =
-//       (cancellation.gvCancellationAmount || 0) +
-//       (cancellation.remarksAmount || 0);
-//     const irctcAdd = cancellation.irctcCancellationAmount || 0;
-
-//     const newGvPool = (booking.gvCancellationPool || 0) + gvAdd;
-//     const newIrctcPool = (booking.irctcCancellationPool || 0) + irctcAdd;
-//     const finalBalance = Math.max(0, cancellation.updatedBalance || 0);
-
-//     const setObj = {
-//       gvCancellationPool: newGvPool,
-//       irctcCancellationPool: newIrctcPool,
-//       cancellationRequest: false,
-//       "payment.balance.amount": Number(finalBalance),
-//     };
-
-//     if (finalBalance === 0) {
-//       setObj["payment.balance.paid"] = true;
-//       setObj["payment.balance.paymentVerified"] = true;
-//       setObj["payment.balance.paidAt"] = new Date();
-//     }
-
-//     const arrayFilters = [];
-//     pendingTravellers.forEach((t, i) => {
-//       const elem = `elem${i}`;
-//       setObj[`travellers.$[${elem}].cancelled.byAdmin`] = true;
-//       setObj[`travellers.$[${elem}].cancelled.cancelledAt`] = new Date();
-//       arrayFilters.push({ [`${elem}._id`]: t._id });
-//     });
-
-//     await tourBookingModel.findByIdAndUpdate(
-//       bookingId,
-//       { $set: setObj },
-//       { arrayFilters, session, new: true }
-//     );
-
-//     await cancellationModel.findByIdAndUpdate(
-//       cancellationId,
-//       { approvedBy: true, approvedAt: new Date(), raisedBy: false },
-//       { session }
-//     );
-
-//     await session.commitTransaction();
-
-//     return res.json({
-//       success: true,
-//       message: `Cancellation approved successfully!
-
-// Cancelled: ${pendingNames.join(", ")}
-
-// New balance: ₹${finalBalance} ${finalBalance === 0 ? "(Fully Paid)" : ""}`,
-//       data: {
-//         cancelledTravellers: pendingNames,
-//         cancelledCount: pendingCount,
-//         newBalance: finalBalance,
-//         balancePaid: finalBalance === 0,
-//       },
-//     });
-//   } catch (err) {
-//     await session.abortTransaction();
-//     console.error("approveCancellation error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Server error during approval. Please try again.",
-//     });
-//   } finally {
-//     session.endSession();
-//   }
-// };
-
 const approveCancellation = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const { bookingId, cancellationId } = req.body;
+    const { tnr, travellerIds, cancellationId } = req.body;
 
-    if (!bookingId || !cancellationId) {
+    if (!tnr || !travellerIds || !cancellationId) {
       return res.status(400).json({
         success: false,
-        message: "bookingId and cancellationId are required",
+        message: "tnr, travellerIds, and cancellationId are required",
       });
     }
 
-    if (
-      !mongoose.Types.ObjectId.isValid(bookingId) ||
-      !mongoose.Types.ObjectId.isValid(cancellationId)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid bookingId or cancellationId format",
-      });
-    }
+    const normalizedTnr = tnr.trim().toUpperCase();
 
     const cancellation = await cancellationModel
       .findOne({
         _id: cancellationId,
-        bookingId,
+        tnr: normalizedTnr,
         raisedBy: true,
         approvedBy: { $ne: true },
       })
@@ -911,9 +811,9 @@ const approveCancellation = async (req, res) => {
     }
 
     const booking = await tourBookingModel
-      .findById(bookingId)
+      .findOne({ tnr: normalizedTnr })
       .select(
-        "travellers gvCancellationPool irctcCancellationPool cancellationRequest payment contact.mobile",
+        "tnr travellers gvCancellationPool irctcCancellationPool cancellationRequest payment contact.mobile",
       )
       .session(session);
 
@@ -944,10 +844,10 @@ const approveCancellation = async (req, res) => {
     if (pendingCount !== requestedCount) {
       return res.status(400).json({
         success: false,
-        message: `CANCELLATION BLOCKED: Traveller
+        message: `CANCELLATION BLOCKED: Traveller count mismatch
 
-User requested : ${pendingCount} traveller's
-Admin calculated : ${requestedCount} traveller's
+User requested : ${pendingCount} traveller(s)
+Admin calculated : ${requestedCount} traveller(s)
 
 User requested: ${pendingNames.join(", ") || "None"}
 But Admin worked: ${requestedNames.join(", ") || "None"}
@@ -1035,8 +935,8 @@ Kindly reject this and raise new request`,
       arrayFilters.push({ [`${elem}._id`]: t._id });
     });
 
-    await tourBookingModel.findByIdAndUpdate(
-      bookingId,
+    await tourBookingModel.updateOne(
+      { tnr: normalizedTnr },
       { $set: setObj },
       { arrayFilters, session, new: true },
     );
@@ -1061,6 +961,7 @@ New balance: ₹${finalBalance} ${finalBalance === 0 ? "(Fully Paid)" : ""}`,
         cancelledCount: pendingCount,
         newBalance: finalBalance,
         balancePaid: finalBalance === 0,
+        tnr: normalizedTnr,
       },
     });
   } catch (err) {
@@ -1074,54 +975,33 @@ New balance: ₹${finalBalance} ${finalBalance === 0 ? "(Fully Paid)" : ""}`,
     session.endSession();
   }
 };
-//REJECTING THE CANCELLATION IN ANCELLATION APPROVALS PAGE
+
 const rejectCancellation = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const { bookingId, travellerIds, cancellationId } = req.body;
+    const { tnr, travellerIds, cancellationId } = req.body;
 
     // === VALIDATION ===
     if (
-      !bookingId ||
+      !tnr ||
       !cancellationId ||
       !Array.isArray(travellerIds) ||
       travellerIds.length === 0
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "bookingId, cancellationId, and travellerIds array are required",
+        message: "tnr, cancellationId, and travellerIds array are required",
       });
     }
 
-    if (
-      !mongoose.Types.ObjectId.isValid(bookingId) ||
-      !mongoose.Types.ObjectId.isValid(cancellationId)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid bookingId or cancellationId",
-      });
-    }
+    const normalizedTnr = tnr.trim().toUpperCase();
 
-    const invalidTravellerIds = travellerIds.filter(
-      (id) => !mongoose.Types.ObjectId.isValid(id),
-    );
-    if (invalidTravellerIds.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid travellerId(s)",
-        invalidIds: invalidTravellerIds,
-      });
-    }
-
-    // === FIND CANCELLATION DOCUMENT ===
     const cancellation = await cancellationModel
       .findOne({
         _id: cancellationId,
-        bookingId,
+        tnr: normalizedTnr,
         raisedBy: true,
       })
       .session(session);
@@ -1159,13 +1039,12 @@ const rejectCancellation = async (req, res) => {
       { session },
     );
 
-    // === ONLY THIS LINE ADDED: Clear cancellationRequest in main booking ===
-    await tourBookingModel.findByIdAndUpdate(
-      bookingId,
+    // === Clear cancellationRequest in main booking ===
+    await tourBookingModel.updateOne(
+      { tnr: normalizedTnr },
       { $set: { cancellationRequest: false } },
       { session },
     );
-    // ======================================================================
 
     await session.commitTransaction();
 
@@ -1173,7 +1052,7 @@ const rejectCancellation = async (req, res) => {
       success: true,
       message: "Cancellation request rejected successfully",
       data: {
-        bookingId,
+        tnr: normalizedTnr,
         travellerIds,
         cancellationId,
         cancellationRequestCleared: true,
@@ -1188,7 +1067,6 @@ const rejectCancellation = async (req, res) => {
     session.endSession();
   }
 };
-
 //REJECTING CANCELLATION IN DASHBOARD SO THAT USER END WILL GET UPDATED
 
 const bookingRelease = async (req, res) => {
@@ -2066,26 +1944,31 @@ const adminAllotRooms = async (req, res) => {
 //Rejects booking from booking rejection section
 const bookingRejectAdmin = async (req, res) => {
   try {
-    const { tourBookingId, travellerIds = [] } = req.body;
+    const { tnr, travellerIds = [] } = req.body;
 
     // Validate input
-    if (
-      !tourBookingId ||
-      !Array.isArray(travellerIds) ||
-      travellerIds.length === 0
-    ) {
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
       return res.status(400).json({
         success: false,
-        message: "tourBookingId and travellerIds[] are required",
+        message: "Valid 6-character TNR is required",
       });
     }
 
-    // Fetch booking
-    const booking = await tourBookingModel.findById(tourBookingId);
+    if (!Array.isArray(travellerIds) || travellerIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "travellerIds[] array is required and cannot be empty",
+      });
+    }
+
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    // Fetch booking by TNR
+    const booking = await tourBookingModel.findOne({ tnr: normalizedTnr });
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: "Booking not found with this TNR",
       });
     }
 
@@ -2099,7 +1982,7 @@ const bookingRejectAdmin = async (req, res) => {
     const balancePaid =
       booking.payment.balance.paid && booking.payment.balance.paymentVerified;
 
-    // Normalize IDs
+    // Normalize traveller IDs
     const idsSet = new Set(travellerIds.map(String));
 
     // Check for travellers that block rejection
@@ -2176,9 +2059,10 @@ const bookingRejectAdmin = async (req, res) => {
       message: "Traveller(s) rejected successfully",
       updatedBalance: booking.payment.balance.amount,
       rejectedTravellers: rejectedTravellers.map((t) => String(t._id)),
+      tnr: normalizedTnr,
     });
   } catch (error) {
-    console.error(error);
+    console.error("bookingRejectAdmin error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -2205,4 +2089,5 @@ export {
   adminTourList,
   adminAllotRooms,
   bookingRejectAdmin,
+  generateMissingTNRs,
 };
