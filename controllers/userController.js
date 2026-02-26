@@ -623,19 +623,33 @@ const razorpayInstance = new razorpay({
 // // ===============================
 const paymentRazorpay = async (req, res) => {
   try {
-    const { bookingId, paymentType } = req.body; // 'advance' | 'balance'
+    const { tnr, paymentType } = req.body; // ← changed
 
-    const booking = await tourBookingModel.findById(bookingId);
+    if (!tnr) {
+      return res.json({ success: false, message: "TNR is required" });
+    }
+
+    // Find by tnr field (assuming tnr is a unique string field)
+    const booking = await tourBookingModel.findOne({ tnr });
+
+    if (!booking) {
+      return res.json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
     if (
-      !booking ||
-      booking.cancelled.byAdmin ||
-      booking.cancelled.byTraveller
+      booking.cancelled?.byAdmin ||
+      booking.cancelled?.byTraveller ||
+      booking.isBookingCancelled // ← add if you have this flag
     ) {
       return res.json({
         success: false,
         message: "Booking cancelled or not found",
       });
     }
+
     if (booking.userId.toString() !== req.user._id.toString()) {
       return res.json({
         success: false,
@@ -647,16 +661,16 @@ const paymentRazorpay = async (req, res) => {
     let paymentKey = "";
 
     if (paymentType === "advance") {
-      if (booking.payment.advance.paid) {
+      if (booking.payment?.advance?.paid) {
         return res.json({ success: false, message: "Advance already paid" });
       }
       amountToPay = booking.payment.advance.amount;
       paymentKey = "advance";
     } else if (paymentType === "balance") {
-      if (!booking.payment.advance.paid) {
+      if (!booking.payment?.advance?.paid) {
         return res.json({ success: false, message: "Pay advance first" });
       }
-      if (booking.payment.balance.paid) {
+      if (booking.payment?.balance?.paid) {
         return res.json({ success: false, message: "Balance already paid" });
       }
       amountToPay = booking.payment.balance.amount;
@@ -665,81 +679,96 @@ const paymentRazorpay = async (req, res) => {
       return res.json({ success: false, message: "Invalid payment type" });
     }
 
-    // Razorpay order creation
+    // Razorpay order
     const options = {
-      amount: amountToPay * 100, // in paise
+      amount: Math.round(amountToPay * 100), // paise, avoid floating point issues
       currency: process.env.CURRENCY || "INR",
-      receipt: `${bookingId}_${paymentKey}`,
+      receipt: `${tnr}_${paymentKey}`, // ← better to use tnr here too
     };
 
     const order = await razorpayInstance.orders.create(options);
 
-    res.json({
+    return res.json({
       success: true,
       order,
+      // Optional: send these back if frontend needs them
       amountToPay,
       paymentType: paymentKey,
+      tnr,
     });
   } catch (error) {
     console.error("Error in paymentRazorpay:", error);
-    res.json({
+    return res.json({
       success: false,
-      message: error.message,
+      message: error.message || "Payment initiation failed",
     });
   }
 };
 
-// ===============================
-// VERIFY PAYMENT
-// ===============================
-
 const verifyRazorpay = async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
-      req.body;
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+      tnr,
+      paymentType,
+    } = req.body;
 
-    // STEP 1: Verify Signature
+    // You can send tnr & paymentType from frontend in verify call (safer)
+
+    // Verify signature
     const generatedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
       .digest("hex");
 
     if (generatedSignature !== razorpay_signature) {
-      return res.json({ success: false, message: "Signature mismatch" });
+      return res.json({ success: false, message: "Invalid signature" });
     }
 
-    // STEP 2: Fetch Order Info from Razorpay
     const orderInfo = await razorpayInstance.orders.fetch(razorpay_order_id);
     if (!orderInfo || orderInfo.status !== "paid") {
       return res.json({ success: false, message: "Payment not completed" });
     }
 
-    // STEP 3: Extract booking ID & payment type (receipt format: bookingId_paymentType)
-    const [bookingId, paymentType] = orderInfo.receipt.split("_");
+    // Prefer using tnr from body (more secure than parsing receipt)
+    let booking;
 
-    // STEP 4: Update booking payment details (including verification flag)
-    await tourBookingModel.findByIdAndUpdate(bookingId, {
-      $set: {
-        [`payment.${paymentType}.paid`]: true,
-        [`payment.${paymentType}.paidAt`]: new Date(),
-        [`payment.${paymentType}.transactionId`]: razorpay_payment_id,
-        [`payment.${paymentType}.razorpayOrderId`]: razorpay_order_id,
-        [`payment.${paymentType}.status`]: "paid",
-        [`payment.${paymentType}.paymentVerified`]: true, // <-- FIXED: mark payment as verified
+    if (tnr) {
+      booking = await tourBookingModel.findOne({ tnr });
+    } else {
+      // fallback – only if you didn't send tnr
+      const [receiptTnr, receiptType] = orderInfo.receipt.split("_");
+      booking = await tourBookingModel.findOne({ tnr: receiptTnr });
+    }
+
+    if (!booking) {
+      return res.json({ success: false, message: "Booking not found" });
+    }
+
+    // Update
+    await tourBookingModel.findOneAndUpdate(
+      { tnr: booking.tnr },
+      {
+        $set: {
+          [`payment.${paymentType}.paid`]: true,
+          [`payment.${paymentType}.paidAt`]: new Date(),
+          [`payment.${paymentType}.transactionId`]: razorpay_payment_id,
+          [`payment.${paymentType}.razorpayOrderId`]: razorpay_order_id,
+          [`payment.${paymentType}.status`]: "paid",
+          [`payment.${paymentType}.paymentVerified`]: true,
+        },
       },
-    });
+    );
 
-    res.json({
+    return res.json({
       success: true,
-      message:
-        "Payment verified successfully. Receipt will be shared in whatsapp to your registered mobile number.",
+      message: "Payment verified successfully.",
     });
   } catch (error) {
     console.error("Error in verifyRazorpay:", error);
-    res.json({
-      success: false,
-      message: error.message,
-    });
+    return res.json({ success: false, message: error.message });
   }
 };
 
