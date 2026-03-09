@@ -36,7 +36,7 @@ const termsSchema = new mongoose.Schema(
           required: true,
           trim: true,
           minlength: 10,
-          maxlength: 1200,
+          maxlength: 2000,
         },
         active: {
           type: Boolean,
