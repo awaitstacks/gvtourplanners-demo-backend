@@ -483,6 +483,9 @@ const addToTrolly = async (req, res) => {
       },
       status: "pending",
       bookingDate: new Date(),
+      emergencyContact: null,
+      termsAgreed: false,
+      termsAgreedAt: null,
     };
 
     const newBooking = new tourBookingModel(bookingData);

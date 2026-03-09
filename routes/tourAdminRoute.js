@@ -23,6 +23,9 @@ import {
   adminAllotRooms,
   getAllUsers,
   generateMissingTNRs,
+  addTermsPoints,
+  getCurrentTerms,
+  deleteTermsPoint,
 } from "../controllers/tourAdminController.js";
 import authAdmin from "../middlewares/authAdmin.js";
 import { tourUpload } from "../middlewares/multer.js"; // ✅ Correct import (pre-configured fields)
@@ -73,5 +76,9 @@ touradminRouter.post(
   addMissingFieldsToAllBookings,
 );
 touradminRouter.get("/pending-approvals", authAdmin, getPendingApprovals);
+
+touradminRouter.post("/terms/add-points", addTermsPoints);
+touradminRouter.delete("/terms/points/:pointId", deleteTermsPoint);
+touradminRouter.get("/terms/current", getCurrentTerms);
 
 export default touradminRouter;

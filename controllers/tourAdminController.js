@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 
 import tourModel from "../models/tourModel.js";
 import userModel from "../models/userModel.js";
-
+import Terms from "../models/termModel.js";
 import tourBookingModel from "../models/tourBookingmodel.js";
 import cancelRuleModel from "../models/cancelRuleModel.js";
 import cancellationModel from "../models/cancellationModel.js";
@@ -1172,7 +1172,11 @@ const addMissingFieldsToAllBookings = async (req, res) => {
           { cancellationRequest: { $exists: false } },
           { cancellationReceipt: { $exists: false } },
           { manageBookingReceipt: { $exists: false } },
-          // Add future fields here easily
+
+          // ─── New confirmation-related fields ───
+          { emergencyContact: { $exists: false } },
+          { termsAgreed: { $exists: false } },
+          { termsAgreedAt: { $exists: false } },
         ],
       },
       {
@@ -1183,8 +1187,14 @@ const addMissingFieldsToAllBookings = async (req, res) => {
           cancellationRequest: false,
           cancellationReceipt: false,
           manageBookingReceipt: false,
+
+          // ─── Defaults for new fields ───
+          emergencyContact: null, // or "" if you prefer empty string
+          termsAgreed: false,
+          termsAgreedAt: null, // null = never agreed / confirmed
         },
       },
+      { multi: true }, // optional – already default in updateMany, but explicit is fine
     );
 
     res.status(200).json({
@@ -1196,11 +1206,14 @@ const addMissingFieldsToAllBookings = async (req, res) => {
         modifiedCount: result.modifiedCount,
         fieldsEnsured: [
           "manageBooking",
-
           "advanceAdminRemarks",
           "cancellationRequest",
           "cancellationReceipt",
           "manageBookingReceipt",
+          // ─── New ones added here too ───
+          "emergencyContact",
+          "termsAgreed",
+          "termsAgreedAt",
         ],
       },
     });
@@ -2066,6 +2079,385 @@ const bookingRejectAdmin = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+const addTermsPoints = async (req, res) => {
+  try {
+    const { points } = req.body;
+
+    // Basic input validation
+    if (!points || !Array.isArray(points) || points.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please send an array of points (at least one item required)",
+      });
+    }
+
+    // Find or create the current active terms document
+    let termsDoc = await Terms.findOne({ isCurrent: true });
+
+    if (!termsDoc) {
+      // First time → create initial document
+      termsDoc = new Terms({
+        version: "1.0",
+        effectiveFrom: new Date(),
+        isCurrent: true,
+        points: [],
+        // lastUpdatedBy: req.user?._id || null,   ← removed / commented
+        changeSummary: "Initial Terms & Conditions created (first time)",
+      });
+    }
+
+    // Calculate next order number
+    let nextOrder = 1;
+    if (termsDoc.points.length > 0) {
+      const orders = termsDoc.points.map((p) => p.order || 0);
+      nextOrder = Math.max(...orders) + 1;
+    }
+
+    // Prepare and validate new points
+    const newPoints = [];
+
+    for (let i = 0; i < points.length; i++) {
+      const input = points[i];
+
+      let text = "";
+      let internalNote = "";
+
+      if (typeof input === "string") {
+        text = input.trim();
+      } else if (typeof input === "object" && input !== null) {
+        text = (input.text || "").trim();
+        internalNote = (input.internalNote || "").trim();
+      }
+
+      if (!text || text.length < 10) {
+        return res.status(400).json({
+          success: false,
+          message: `Point #${i + 1} is invalid: text must be at least 10 characters`,
+        });
+      }
+
+      newPoints.push({
+        order: nextOrder + i,
+        text,
+        active: true,
+        internalNote,
+        createdAt: new Date(),
+      });
+    }
+
+    // Append new points
+    termsDoc.points.push(...newPoints);
+
+    // Update metadata — removed dependency on req.user
+    // termsDoc.lastUpdatedBy = req.user?._id || null;   ← commented out
+    termsDoc.lastUpdatedAt = new Date();
+    termsDoc.changeSummary = `Added ${newPoints.length} new point(s) - ${new Date().toISOString().split("T")[0]} (admin action)`;
+
+    // Save
+    await termsDoc.save();
+
+    // Prepare clean response (only active & sorted points)
+    const activeSortedPoints = termsDoc.points
+      .filter((p) => p.active === true)
+      .sort((a, b) => a.order - b.order)
+      .map((p) => ({
+        order: p.order,
+        text: p.text,
+        // internalNote is intentionally NOT sent to frontend
+      }));
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully added ${newPoints.length} point(s)`,
+      data: {
+        version: termsDoc.version,
+        effectiveFrom: termsDoc.effectiveFrom,
+        totalActivePoints: activeSortedPoints.length,
+        points: activeSortedPoints,
+      },
+    });
+  } catch (error) {
+    console.error("addTermsPoints error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to add terms points",
+      error: error.message,
+    });
+  }
+};
+
+const deleteTermsPoint = async (req, res) => {
+  try {
+    const { pointId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(pointId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid point ID format",
+      });
+    }
+
+    // Find current active terms document
+    const termsDoc = await Terms.findOne({ isCurrent: true });
+
+    if (!termsDoc) {
+      return res.status(404).json({
+        success: false,
+        message: "No active terms document found",
+      });
+    }
+
+    // Find the point by its _id
+    const point = termsDoc.points.id(pointId);
+
+    if (!point) {
+      return res.status(404).json({
+        success: false,
+        message: "Point not found in current terms",
+      });
+    }
+
+    // Deactivate instead of pull/remove (preserves history)
+    point.active = false;
+    point.updatedAt = new Date();
+
+    // Update metadata
+    termsDoc.lastUpdatedAt = new Date();
+    termsDoc.changeSummary = `Deactivated point #${point.order} - ${new Date().toISOString().split("T")[0]}`;
+    // termsDoc.lastUpdatedBy = req.user._id;  // uncomment when auth is fixed
+
+    await termsDoc.save();
+
+    // Prepare clean response (active points only)
+    const activeSortedPoints = termsDoc.points
+      .filter((p) => p.active === true)
+      .sort((a, b) => a.order - b.order)
+      .map((p) => ({
+        order: p.order,
+        text: p.text,
+      }));
+
+    return res.status(200).json({
+      success: true,
+      message: `Point #${point.order} deactivated successfully`,
+      data: {
+        version: termsDoc.version,
+        totalActivePoints: activeSortedPoints.length,
+        points: activeSortedPoints,
+      },
+    });
+  } catch (error) {
+    console.error("deleteTermsPoint error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to deactivate terms point",
+      error: error.message,
+    });
+  }
+};
+
+// controllers/tourAdminController.js (or termsController.js)
+
+// Import your Terms model (adjust path if needed)
+
+const getCurrentTerms = async (req, res) => {
+  try {
+    // Find the current active version
+    const termsDoc = await Terms.findOne({ isCurrent: true })
+      .select("version effectiveFrom points") // only needed fields
+      .lean(); // faster, plain JS object
+
+    if (!termsDoc) {
+      return res.status(200).json({
+        success: true,
+        message: "No terms & conditions defined yet",
+        data: {
+          version: "N/A",
+          effectiveFrom: null,
+          points: [],
+        },
+      });
+    }
+
+    // Filter active points and sort by order
+    const activePoints = termsDoc.points
+      .filter((p) => p.active === true)
+      .sort((a, b) => a.order - b.order)
+      .map((p) => ({
+        _id: p._id.toString(),
+        order: p.order,
+        text: p.text,
+      }));
+
+    return res.status(200).json({
+      success: true,
+      message: "Current terms & conditions fetched",
+      data: {
+        version: termsDoc.version,
+        effectiveFrom: termsDoc.effectiveFrom,
+        totalActivePoints: activePoints.length,
+        points: activePoints,
+      },
+    });
+  } catch (error) {
+    console.error("getCurrentTerms error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch terms & conditions",
+      error: error.message,
+    });
+  }
+};
+
+const submitTermsAgreement = async (req, res) => {
+  try {
+    const { tnr } = req.params;
+    const { emergencyContact, termsAgreed } = req.body;
+
+    // Validation
+    if (!tnr || tnr.length !== 6 || !/^[A-Z0-9]{6}$/.test(tnr)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid TNR format",
+      });
+    }
+
+    if (!emergencyContact || !/^[0-9]{10}$/.test(emergencyContact)) {
+      return res.status(400).json({
+        success: false,
+        message: "Emergency contact must be a valid 10-digit number",
+      });
+    }
+
+    if (!termsAgreed) {
+      return res.status(400).json({
+        success: false,
+        message: "You must agree to the terms and conditions",
+      });
+    }
+
+    // Find booking by TNR
+    const booking = await tourBookingModel.findOne({ tnr: tnr.toUpperCase() });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found with this TNR",
+      });
+    }
+
+    // Check if already agreed
+    if (booking.termsAgreed) {
+      return res.status(400).json({
+        success: false,
+        message: "Terms already agreed for this booking",
+      });
+    }
+
+    // Update booking
+    booking.emergencyContact = emergencyContact;
+    booking.termsAgreed = true;
+    booking.termsAgreedAt = new Date();
+
+    await booking.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Terms agreed successfully. Thank you!",
+      data: {
+        tnr: booking.tnr,
+        emergencyContact: booking.emergencyContact,
+        termsAgreed: booking.termsAgreed,
+        termsAgreedAt: booking.termsAgreedAt,
+      },
+    });
+  } catch (error) {
+    console.error("submitTermsAgreement error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to submit terms agreement",
+      error: error.message,
+    });
+  }
+};
+const getBookingSummaryByTNR = async (req, res) => {
+  try {
+    const { tnr } = req.params;
+
+    const booking = await tourBookingModel
+      .findOne({ tnr: tnr.toUpperCase() })
+      .select(
+        "tnr tourData.title travellers emergencyContact termsAgreed termsAgreedAt",
+      )
+      .lean();
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    const travellers = booking.travellers || [];
+
+    // Gender counts
+    const males = travellers.filter(
+      (t) => t.gender?.toLowerCase() === "male",
+    ).length;
+
+    const females = travellers.filter(
+      (t) => t.gender?.toLowerCase() === "female",
+    ).length;
+
+    // Child detection (age < 12)
+    const children = travellers.filter((t) => t.age < 12);
+
+    const childrenWithBerth = children.filter(
+      (t) => t.sharingType === "withBerth",
+    ).length;
+
+    const childrenWithoutBerth = children.filter(
+      (t) => t.sharingType === "withoutBerth",
+    ).length;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        tnr: booking.tnr,
+        tourTitle: booking.tourData?.title || "N/A",
+        totalTravellers: travellers.length,
+        males,
+        females,
+        children: {
+          total: children.length,
+          withBerth: childrenWithBerth,
+          withoutBerth: childrenWithoutBerth,
+        },
+        // Return full travellers array so frontend can show names
+        travellers: travellers.map((t) => ({
+          firstName: t.firstName || "",
+          lastName: t.lastName || "",
+          title: t.title || "",
+          age: t.age,
+          gender: t.gender,
+          sharingType: t.sharingType,
+        })),
+        emergencyContact: booking.emergencyContact || null,
+        termsAgreed: booking.termsAgreed || false,
+        termsAgreedAt: booking.termsAgreedAt || null,
+      },
+    });
+  } catch (err) {
+    console.error("getBookingSummaryByTNR error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message,
+    });
+  }
+};
 export {
   loginAdmin,
   allTours,
@@ -2090,4 +2482,9 @@ export {
   adminAllotRooms,
   bookingRejectAdmin,
   generateMissingTNRs,
+  addTermsPoints,
+  deleteTermsPoint,
+  getCurrentTerms,
+  submitTermsAgreement,
+  getBookingSummaryByTNR,
 };

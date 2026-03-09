@@ -7,6 +7,7 @@ import connectCloudinary from "./config/cloudinary.js";
 import userRouter from "./routes/userRoute.js";
 import touradminRouter from "./routes/tourAdminRoute.js";
 import tourRouter from "./routes/tourRoute.js";
+import bookingRouter from "./routes/bookingRoute.js";
 
 //app config
 
@@ -30,7 +31,7 @@ app.use(
       "token",
       "aToken",
     ],
-  })
+  }),
 );
 //API endpoints
 
@@ -43,6 +44,10 @@ app.use("/api/touradmin", touradminRouter);
 app.use("/api/tour", tourRouter);
 
 app.use("/api/user", userRouter);
+
+//public
+app.use("/api/bookings", bookingRouter);
+
 //localhost:4000/api/admin
 
 app.get("/", (req, res) => {

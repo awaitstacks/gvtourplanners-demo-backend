@@ -163,6 +163,21 @@ const tourBookingSchema = new mongoose.Schema({
     },
   ],
   cancellationRequest: { type: Boolean, default: false },
+  emergencyContact: {
+    type: String,
+    match: [/^[0-9]{10}$/, "Please enter a valid 10-digit mobile number"],
+    default: null, // or "" if you prefer empty string
+  },
+
+  termsAgreed: {
+    type: Boolean,
+    default: false,
+  },
+
+  termsAgreedAt: {
+    type: Date,
+    default: null, // null = never agreed / confirmed
+  },
 });
 
 const tourBookingModel =
