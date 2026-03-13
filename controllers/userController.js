@@ -1,5 +1,6 @@
 import validator from "validator";
 import bcrypt from "bcrypt";
+import mongoose from "mongoose";
 import userModel from "../models/userModel.js";
 import tourModel from "../models/tourModel.js";
 import jwt from "jsonwebtoken";
@@ -8,6 +9,7 @@ import { verifyGoogleToken } from "../middlewares/googleUserAuth.js";
 import razorpay from "razorpay";
 import crypto from "crypto";
 import tourBookingModel from "../models/tourBookingmodel.js";
+import TourVehicle from "../models/tourVehicleModel.js";
 
 // API for Google Sign-In / Sign-Up
 const googleSignIn = async (req, res) => {
@@ -65,7 +67,6 @@ const googleSignIn = async (req, res) => {
       message: "Google login successful",
     });
   } catch (error) {
-    console.error("Google Sign-In Error:", error);
     res.status(401).json({
       success: false,
       message: "Google authentication failed",
@@ -111,7 +112,6 @@ const registerUser = async (req, res) => {
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
     res.json({ success: true, token });
   } catch (error) {
-    console.log(error);
     res.json({ success: false, message: error.message });
   }
 };
@@ -132,7 +132,6 @@ const loginUser = async (req, res) => {
       res.json({ success: false, message: "Invalid credentials" });
     }
   } catch (error) {
-    console.log(error);
     res.json({ success: false, message: error.message });
   }
 };
@@ -146,7 +145,6 @@ const getProfile = async (req, res) => {
 
     res.json({ success: true, user: useData });
   } catch (error) {
-    console.log(error);
     res.json({ success: false, message: error.message });
   }
 };
@@ -182,7 +180,6 @@ const updateProfile = async (req, res) => {
 
     res.json({ success: true, message: "Profile Updated" });
   } catch (error) {
-    console.log(error);
     res.json({ success: false, message: error.message });
   }
 };
@@ -497,7 +494,6 @@ const addToTrolly = async (req, res) => {
       booking: newBooking,
     });
   } catch (error) {
-    console.error("Error adding to trolley:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error.",
@@ -519,7 +515,6 @@ const listTrolly = async (req, res) => {
 
     res.json({ success: true, bookings });
   } catch (error) {
-    console.log("Error in listCart:", error);
     res.json({ success: false, message: error.message });
   }
 };
@@ -607,7 +602,6 @@ const cancelTraveller = async (req, res) => {
       travellerId: traveller._id,
     });
   } catch (error) {
-    console.error("Cancel Traveller Error:", error);
     return res.status(500).json({
       success: false,
       message: "An unexpected error occurred",
@@ -700,7 +694,6 @@ const paymentRazorpay = async (req, res) => {
       tnr,
     });
   } catch (error) {
-    console.error("Error in paymentRazorpay:", error);
     return res.json({
       success: false,
       message: error.message || "Payment initiation failed",
@@ -770,11 +763,308 @@ const verifyRazorpay = async (req, res) => {
       message: "Payment verified successfully.",
     });
   } catch (error) {
-    console.error("Error in verifyRazorpay:", error);
     return res.json({ success: false, message: error.message });
   }
 };
+const getSeatAllocationByTNR = async (req, res) => {
+  try {
+    const { tnr } = req.params; // or req.query.tnr
 
+    if (!tnr || tnr.length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid 6-digit TNR",
+      });
+    }
+
+    // Step 1: Find booking by TNR
+    const booking = await tourBookingModel
+      .findOne({ tnr: tnr.toUpperCase() })
+      .select("tourId tnr userData bookingDate")
+      .lean();
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "No booking found with this TNR",
+      });
+    }
+
+    // Step 2: Find all vehicles for this tour
+    const vehicles = await TourVehicle.find({ tourId: booking.tourId })
+      .select(
+        "vehicleName registrationNumber leaderRow passengerRows totalSeats seatsPerRow passengerRowCount allowSeatSelection bookedSeats",
+      )
+      .lean();
+
+    if (vehicles.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No vehicles assigned to this tour yet",
+        booking: {
+          tnr: booking.tnr,
+          tourId: booking.tourId,
+        },
+        vehicles: [],
+      });
+    }
+
+    // Optional: enrich with more readable seat status
+    const enrichedVehicles = vehicles.map((vehicle) => {
+      const bookedSet = new Set(vehicle.bookedSeats.map((b) => b.seatNumber));
+
+      return {
+        ...vehicle,
+        bookedSeatSet: Array.from(bookedSet), // for frontend highlighting
+        totalBooked: vehicle.bookedSeats.length,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      booking: {
+        tnr: booking.tnr,
+        tourId: booking.tourId,
+      },
+      vehicles: enrichedVehicles,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching seat allocation",
+      error: err.message,
+    });
+  }
+};
+const getBookingDetailsByTNR = async (req, res) => {
+  try {
+    const { tnr } = req.params;
+
+    // Basic input validation
+    if (!tnr || tnr.trim().length !== 6 || !/^[A-Z0-9]{6}$/i.test(tnr)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid 6-digit TNR (alphanumeric)",
+      });
+    }
+
+    // Find booking - lean() for performance (no Mongoose document overhead)
+    const booking = await tourBookingModel
+      .findOne({ tnr: tnr.toUpperCase() })
+      .populate("userId", "name email mobile") // optional: populate basic user info
+      .populate("tourId", "tourName startDate endDate duration") // optional: populate tour basics
+      .lean();
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: `No booking found with TNR: ${tnr.toUpperCase()}`,
+      });
+    }
+
+    // Success response - full document returned
+    return res.status(200).json({
+      success: true,
+      message: "Booking details retrieved successfully",
+      booking: {
+        ...booking,
+        // Ensure TNR is always uppercase in response
+        tnr: booking.tnr?.toUpperCase(),
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching booking details",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+const confirmSeatSelection = async (req, res) => {
+  const { tnr } = req.params;
+  const { selections } = req.body;
+
+  // Basic input validation
+  if (!selections || Object.keys(selections).length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "No seats selected to confirm",
+    });
+  }
+
+  if (!tnr || typeof tnr !== "string" || tnr.trim().length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid TNR format",
+    });
+  }
+
+  const normalizedTnr = tnr.trim().toUpperCase();
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // 1. Find the booking
+    const booking = await tourBookingModel
+      .findOne({ tnr: normalizedTnr })
+      .session(session);
+
+    if (!booking) {
+      throw new Error("Booking not found with this TNR");
+    }
+
+    // ────────────────────────────────────────────────
+    // NEW: Check if advance payment is paid
+    // ────────────────────────────────────────────────
+    if (
+      !booking.payment?.advance?.paid ||
+      !booking.payment?.advance?.paymentVerified
+    ) {
+      throw new Error(
+        "Advance payment must be completed and verified before locking seats",
+      );
+    }
+
+    // 2. Get involved vehicles
+    const vehicleIds = [
+      ...new Set(Object.values(selections).map((s) => s.vehicleId)),
+    ];
+
+    const vehicles = await TourVehicle.find({
+      _id: { $in: vehicleIds },
+      tourId: booking.tourId,
+    }).session(session);
+
+    if (vehicles.length !== vehicleIds.length) {
+      throw new Error("One or more selected vehicles not found");
+    }
+
+    // 3. Check if seat selection is allowed
+    const notAllowedVehicles = vehicles.filter((v) => !v.allowSeatSelection);
+    if (notAllowedVehicles.length > 0) {
+      const names = notAllowedVehicles.map((v) => v.vehicleName).join(", ");
+      throw new Error(
+        `Seat selection is not yet released for vehicle(s): ${names}`,
+      );
+    }
+
+    // 4. Prepare updates
+    const now = new Date();
+    const travellerUpdates = [];
+    const vehicleBookedSeatsMap = new Map();
+
+    for (const [idxStr, sel] of Object.entries(selections)) {
+      const travellerIndex = parseInt(idxStr, 10);
+
+      if (
+        isNaN(travellerIndex) ||
+        travellerIndex < 0 ||
+        travellerIndex >= booking.travellers.length
+      ) {
+        throw new Error(`Invalid traveller index: ${idxStr}`);
+      }
+
+      const traveller = booking.travellers[travellerIndex];
+
+      if (traveller.cancelled?.byAdmin || traveller.cancelled?.byTraveller) {
+        throw new Error(
+          `Cannot assign seat to cancelled traveller #${travellerIndex + 1}`,
+        );
+      }
+
+      if (traveller.seatNumber && traveller.seatLocked) {
+        throw new Error(
+          `Traveller #${travellerIndex + 1} already has a locked seat`,
+        );
+      }
+
+      const vehicle = vehicles.find((v) => v._id.toString() === sel.vehicleId);
+      const alreadyBooked = vehicle.bookedSeats.some(
+        (bs) => bs.seatNumber === sel.seatLabel,
+      );
+
+      if (alreadyBooked) {
+        throw new Error(
+          `Seat ${sel.seatLabel} in ${vehicle.vehicleName} is already booked`,
+        );
+      }
+
+      travellerUpdates.push({
+        index: travellerIndex,
+        seatNumber: sel.seatLabel,
+        seatLocked: true,
+        seatLockedAt: now,
+      });
+
+      if (!vehicleBookedSeatsMap.has(sel.vehicleId)) {
+        vehicleBookedSeatsMap.set(sel.vehicleId, []);
+      }
+
+      vehicleBookedSeatsMap.get(sel.vehicleId).push({
+        seatNumber: sel.seatLabel,
+        bookingId: booking._id,
+        travellerIndex: travellerIndex,
+        lockedAt: now,
+      });
+    }
+
+    // 5. Apply updates to booking
+    for (const update of travellerUpdates) {
+      const t = booking.travellers[update.index];
+      t.seatNumber = update.seatNumber;
+      t.seatLocked = update.seatLocked;
+      t.seatLockedAt = update.seatLockedAt;
+    }
+
+    await booking.save({ session });
+
+    // 6. Update vehicles
+    for (const [vehicleId, newEntries] of vehicleBookedSeatsMap) {
+      await TourVehicle.updateOne(
+        { _id: vehicleId },
+        { $push: { bookedSeats: { $each: newEntries } } },
+        { session },
+      );
+    }
+
+    // 7. Commit transaction
+    await session.commitTransaction();
+
+    return res.status(200).json({
+      success: true,
+      message: "Seats confirmed and locked successfully",
+      data: {
+        tnr: normalizedTnr,
+        assignedCount: Object.keys(selections).length,
+        timestamp: now.toISOString(),
+      },
+    });
+  } catch (error) {
+    await session.abortTransaction();
+
+    const message = error.message || "Server error during seat confirmation";
+
+    let status = 500;
+    if (message.includes("not found")) status = 404;
+    if (
+      message.includes("Invalid") ||
+      message.includes("cancelled") ||
+      message.includes("already has")
+    )
+      status = 400;
+    if (message.includes("already booked")) status = 409;
+    if (message.includes("not yet released")) status = 403;
+    if (message.includes("Advance payment")) status = 403; // or 402 Payment Required
+
+    return res.status(status).json({
+      success: false,
+      message,
+    });
+  } finally {
+    session.endSession();
+  }
+};
 export {
   registerUser,
   loginUser,
@@ -786,4 +1076,7 @@ export {
   paymentRazorpay,
   verifyRazorpay,
   googleSignIn,
+  getSeatAllocationByTNR,
+  getBookingDetailsByTNR,
+  confirmSeatSelection,
 };

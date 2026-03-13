@@ -6,6 +6,7 @@ import tourBookingModel from "../models/tourBookingmodel.js";
 import cancellationModel from "../models/cancellationModel.js";
 import manageBookingModel from "../models/manageBookingModel.js";
 import tourRoomAllocationModel from "../models/roomModel.js";
+import TourVehicle from "../models/tourVehicleModel.js";
 import mongoose from "mongoose"; // Added missing import
 
 const tourList = async (req, res) => {
@@ -3172,6 +3173,340 @@ const taskMarkManageBookingReceipt = async (req, res) => {
     session.endSession();
   }
 };
+const createTourVehicle = async (req, res) => {
+  try {
+    const { tourId } = req.params;
+    const {
+      vehicleName,
+      registrationNumber,
+      leaderRow = [], // frontend sends dynamic array
+      passengerRows = [],
+      allowSeatSelection = false,
+    } = req.body;
+
+    if (!vehicleName?.trim()) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Vehicle name is required" });
+    }
+
+    // Validate leaderRow only if provided
+    if (leaderRow.length > 0) {
+      if (
+        !Array.isArray(leaderRow) ||
+        leaderRow.length < 1 ||
+        leaderRow.length > 5
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "leaderRow must have between 1 and 5 seats (or omit it)",
+        });
+      }
+      if (
+        !leaderRow.every((s) => typeof s === "string" && s.startsWith("LS"))
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Each leader seat label must start with 'LS'",
+        });
+      }
+    }
+
+    const vehicleData = {
+      tourId,
+      vehicleName: vehicleName.trim(),
+      registrationNumber: registrationNumber?.trim() || undefined,
+      leaderRow: leaderRow.length > 0 ? leaderRow : undefined, // let pre-save hook handle default
+      passengerRows,
+      allowSeatSelection,
+    };
+
+    const vehicle = new TourVehicle(vehicleData);
+    await vehicle.save();
+
+    // Return full object including virtual seatLayout
+    return res.status(201).json({
+      success: true,
+      message: "Tour vehicle created",
+      vehicle: vehicle.toObject({ virtuals: true }), // includes seatLayout
+    });
+  } catch (err) {
+    console.error(err);
+    if (err.name === "ValidationError") {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    return res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
+  }
+};
+const updateTourVehicle = async (req, res) => {
+  try {
+    const { tourId, vehicleId } = req.params;
+
+    if (
+      !mongoose.Types.ObjectId.isValid(vehicleId) ||
+      !mongoose.Types.ObjectId.isValid(tourId)
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid ID format" });
+    }
+
+    const updateData = {};
+
+    if (req.body.vehicleName?.trim()) {
+      updateData.vehicleName = req.body.vehicleName.trim();
+    }
+    if (req.body.registrationNumber !== undefined) {
+      updateData.registrationNumber =
+        req.body.registrationNumber?.trim() || null;
+    }
+    if (req.body.leaderRow) {
+      if (
+        !Array.isArray(req.body.leaderRow) ||
+        req.body.leaderRow.length < 1 ||
+        req.body.leaderRow.length > 5
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "leaderRow must have between 1 and 5 seats",
+        });
+      }
+      if (
+        !req.body.leaderRow.every(
+          (s) => typeof s === "string" && s.startsWith("LS"),
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Each leader seat label must start with 'LS'",
+        });
+      }
+      updateData.leaderRow = req.body.leaderRow;
+    }
+    if (req.body.passengerRows) {
+      if (
+        !Array.isArray(req.body.passengerRows) ||
+        req.body.passengerRows.length === 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "passengerRows must be non-empty array",
+        });
+      }
+      updateData.passengerRows = req.body.passengerRows;
+
+      // ── Recalculate computed fields manually (pre-save doesn't run on findOneAndUpdate) ──
+      const passengerCount = updateData.passengerRows.length;
+      const seatsPerRow =
+        passengerCount > 0 ? updateData.passengerRows[0].length : 0;
+
+      updateData.seatsPerRow = seatsPerRow;
+      updateData.passengerRowCount = passengerCount;
+      updateData.totalSeats = seatsPerRow * passengerCount; // only C + D seats, LS excluded
+    }
+    if (typeof req.body.allowSeatSelection === "boolean") {
+      updateData.allowSeatSelection = req.body.allowSeatSelection;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields provided for update",
+      });
+    }
+
+    const updated = await TourVehicle.findOneAndUpdate(
+      { _id: vehicleId, tourId },
+      { $set: updateData },
+      { new: true, runValidators: true },
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Vehicle not found or does not belong to this tour",
+      });
+    }
+
+    // Use toObject with virtuals — lean() strips them
+    return res.json({
+      success: true,
+      message: "Vehicle updated successfully",
+      vehicle: updated.toObject({ virtuals: true }),
+    });
+  } catch (err) {
+    console.error(err);
+    if (err.name === "ValidationError") {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    return res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
+  }
+};
+
+const toggleVehicleSeatSelection = async (req, res) => {
+  try {
+    const { tourId, vehicleId } = req.params;
+    const { allowSeatSelection } = req.body;
+
+    if (typeof allowSeatSelection !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: 'Field "allowSeatSelection" must be boolean',
+      });
+    }
+
+    const vehicle = await TourVehicle.findOneAndUpdate(
+      { _id: vehicleId, tourId },
+      { $set: { allowSeatSelection } },
+      { new: true, runValidators: true },
+    );
+
+    if (!vehicle) {
+      return res.status(404).json({
+        success: false,
+        message: "Vehicle not found or does not belong to this tour",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Seat selection ${allowSeatSelection ? "enabled" : "disabled"} successfully`,
+      vehicle,
+    });
+  } catch (err) {
+    console.error(err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
+  }
+};
+
+const getTourVehicles = async (req, res) => {
+  try {
+    const { tourId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(tourId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid tour ID" });
+    }
+
+    const vehicles = await TourVehicle.find({ tourId })
+      .select(
+        "vehicleName registrationNumber totalSeats leaderRow passengerRows passengerRowCount seatsPerRow allowSeatSelection bookedSeats createdAt",
+      )
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const enriched = vehicles.map((v) => ({
+      ...v,
+      bookedSeatsCount: v.bookedSeats?.length || 0,
+      bookedSeatNumbers:
+        v.bookedSeats?.map((bs) => bs.seatNumber).filter(Boolean) || [], // ← This is what makes seat numbers visible
+    }));
+
+    return res.json({
+      success: true,
+      count: enriched.length,
+      vehicles: enriched,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+const deleteTourVehicle = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { tourId, vehicleId } = req.params;
+
+    if (
+      !mongoose.Types.ObjectId.isValid(vehicleId) ||
+      !mongoose.Types.ObjectId.isValid(tourId)
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid ID format" });
+    }
+
+    // 1. Find the vehicle
+    const vehicle = await TourVehicle.findOne({
+      _id: vehicleId,
+      tourId,
+    }).session(session);
+
+    if (!vehicle) {
+      return res.status(404).json({
+        success: false,
+        message: "Vehicle not found or does not belong to this tour",
+      });
+    }
+
+    // 2. Optional: Warn/log if there are booked seats
+    const bookedCount = vehicle.bookedSeats?.length || 0;
+    if (bookedCount > 0) {
+      console.warn(
+        `Deleting vehicle ${vehicleId} with ${bookedCount} booked seats`,
+      );
+      // You can still proceed, or add force param later if needed
+    }
+
+    // 3. Collect all bookings that have seats on this vehicle
+    const bookingIds = vehicle.bookedSeats.map((bs) => bs.bookingId);
+
+    if (bookingIds.length > 0) {
+      // 4. Clear seat info from all affected bookings
+      await tourBookingModel.updateMany(
+        { _id: { $in: bookingIds } },
+        {
+          $set: {
+            "travellers.$[elem].seatNumber": null,
+            "travellers.$[elem].seatLocked": false,
+            "travellers.$[elem].seatLockedAt": null,
+          },
+        },
+        {
+          arrayFilters: [
+            {
+              "elem.seatNumber": {
+                $in: vehicle.bookedSeats.map((bs) => bs.seatNumber),
+              },
+            },
+          ],
+          session,
+        },
+      );
+    }
+
+    // 5. Delete the vehicle
+    await TourVehicle.deleteOne({ _id: vehicleId, tourId }).session(session);
+
+    await session.commitTransaction();
+
+    return res.json({
+      success: true,
+      message: "Vehicle deleted successfully",
+      affectedBookings: bookingIds.length,
+      bookedSeatsCleared: bookedCount,
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    console.error("deleteTourVehicle error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error during vehicle deletion",
+      error: err.message,
+    });
+  } finally {
+    session.endSession();
+  }
+};
 const addTour = async (req, res) => {
   try {
     const {
@@ -3532,6 +3867,7 @@ const addTour = async (req, res) => {
     res.json({ success: false, message: error.message });
   }
 };
+
 export {
   tourList,
   loginTour,
@@ -3564,5 +3900,10 @@ export {
   taskMarkBalanceReceiptSent,
   taskMarkCancellationReceipt,
   taskMarkManageBookingReceipt,
+  createTourVehicle,
+  updateTourVehicle,
+  toggleVehicleSeatSelection,
+  getTourVehicles,
+  deleteTourVehicle,
   addTour,
 };

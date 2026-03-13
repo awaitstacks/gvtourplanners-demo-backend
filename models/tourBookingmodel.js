@@ -66,6 +66,18 @@ const tourBookingSchema = new mongoose.Schema({
           seatNo: { type: String },
         },
       ],
+
+      seatNumber: {
+        type: String,
+        default: null,
+        trim: true,
+      },
+      seatLocked: {
+        type: Boolean,
+        default: false,
+      },
+      seatLockedAt: { type: Date },
+
       staffRemarks: { type: String },
       remarks: { type: String },
       cancelled: {

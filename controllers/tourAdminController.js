@@ -11,6 +11,7 @@ import cancelRuleModel from "../models/cancelRuleModel.js";
 import cancellationModel from "../models/cancellationModel.js";
 import tourRoomAllocationModel from "../models/roomModel.js";
 import manageBookingModel from "../models/manageBookingModel.js";
+import TourVehicle from "../models/tourVehicleModel.js";
 // controllers/adminController.js   (or wherever your admin controllers live)
 
 // Helper function to generate 6-char TNR in format: AAA9AA
@@ -835,7 +836,7 @@ const approveCancellation = async (req, res) => {
     const pendingNames = pendingTravellers.map(getName);
     const requestedNames = (cancellation.travellerIds || []).map((id) => {
       const t = booking.travellers.find(
-        (t) => t._id.toString() === id.toString(),
+        (trav) => trav._id.toString() === id.toString(),
       );
       return t ? getName(t) : `Deleted Traveller (ID: ${id})`;
     });
@@ -927,20 +928,64 @@ Kindly reject this and raise new request`,
       setObj["payment.balance.paidAt"] = new Date();
     }
 
+    // === Prepare arrayFilters for positional updates ===
     const arrayFilters = [];
+
+    // === NEW: Clear seat lock & seat number for approved travellers ===
     pendingTravellers.forEach((t, i) => {
-      const elem = `elem${i}`;
-      setObj[`travellers.$[${elem}].cancelled.byAdmin`] = true;
-      setObj[`travellers.$[${elem}].cancelled.cancelledAt`] = new Date();
-      arrayFilters.push({ [`${elem}._id`]: t._id });
+      const elemKey = `elem${i}`;
+      setObj[`travellers.$[${elemKey}].cancelled.byAdmin`] = true;
+      setObj[`travellers.$[${elemKey}].cancelled.cancelledAt`] = new Date();
+
+      // Clear seat allocation
+      setObj[`travellers.$[${elemKey}].seatNumber`] = null;
+      setObj[`travellers.$[${elemKey}].seatLocked`] = false;
+      setObj[`travellers.$[${elemKey}].seatLockedAt`] = null;
+
+      // Add filter for this traveller's _id
+      arrayFilters.push({ [`${elemKey}._id`]: t._id });
     });
 
+    // === Update booking with all changes ===
     await tourBookingModel.updateOne(
       { tnr: normalizedTnr },
       { $set: setObj },
       { arrayFilters, session, new: true },
     );
 
+    // === NEW: Remove from bookedSeats in tourVehicleModel ===
+    for (const traveller of pendingTravellers) {
+      const seatNumber = traveller.seatNumber;
+      if (!seatNumber) continue; // no seat was locked
+
+      // Find the vehicle that has this exact seat booked for this booking
+      const vehicle = await TourVehicle.findOne(
+        {
+          "bookedSeats.seatNumber": seatNumber,
+          "bookedSeats.bookingId": booking._id,
+          "bookedSeats.travellerIndex": booking.travellers.indexOf(traveller),
+        },
+        { _id: 1, bookedSeats: 1 },
+      ).session(session);
+
+      if (vehicle) {
+        // Remove the matching booked seat entry
+        await TourVehicle.updateOne(
+          { _id: vehicle._id },
+          {
+            $pull: {
+              bookedSeats: {
+                seatNumber: seatNumber,
+                bookingId: booking._id,
+              },
+            },
+          },
+          { session },
+        );
+      }
+    }
+
+    // Approve the cancellation record
     await cancellationModel.findByIdAndUpdate(
       cancellationId,
       { approvedBy: true, approvedAt: new Date(), raisedBy: false },
@@ -962,6 +1007,9 @@ New balance: ₹${finalBalance} ${finalBalance === 0 ? "(Fully Paid)" : ""}`,
         newBalance: finalBalance,
         balancePaid: finalBalance === 0,
         tnr: normalizedTnr,
+        seatsReleased: pendingTravellers
+          .map((t) => t.seatNumber)
+          .filter(Boolean),
       },
     });
   } catch (err) {
@@ -1068,29 +1116,34 @@ const rejectCancellation = async (req, res) => {
   }
 };
 //REJECTING CANCELLATION IN DASHBOARD SO THAT USER END WILL GET UPDATED
-
 const bookingRelease = async (req, res) => {
   try {
-    const { tourBookingId, travellerIds = [] } = req.body;
+    const { tnr, travellerIds = [] } = req.body;
 
-    // Validate input
-    if (
-      !tourBookingId ||
-      !Array.isArray(travellerIds) ||
-      travellerIds.length === 0
-    ) {
+    // 1. Validate input
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
       return res.status(400).json({
         success: false,
-        message: "tourBookingId and travellerIds[] are required",
+        message: "Valid 6-character TNR is required",
       });
     }
 
-    // Fetch booking
-    const booking = await tourBookingModel.findById(tourBookingId);
+    if (!Array.isArray(travellerIds) || travellerIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "travellerIds[] array is required and cannot be empty",
+      });
+    }
+
+    // Normalize TNR (uppercase, trim)
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    // 2. Fetch booking by TNR
+    const booking = await tourBookingModel.findOne({ tnr: normalizedTnr });
     if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found",
+        message: `Booking with TNR ${normalizedTnr} not found`,
       });
     }
 
@@ -1100,17 +1153,18 @@ const bookingRelease = async (req, res) => {
 
     const idsSet = new Set(travellerIds.map(String));
 
-    // Process travellers
+    // 3. Process travellers
     booking.travellers = booking.travellers.map((traveller) => {
       const travellerIdStr = String(traveller._id);
 
       if (idsSet.has(travellerIdStr)) {
         const { cancelled } = traveller;
 
-        // Only allow release if cancelled.byTraveller = true AND cancelled.byAdmin = false
-        if (cancelled.byTraveller && !cancelled.byAdmin) {
+        // Only release if cancelled by traveller AND NOT by admin
+        if (cancelled?.byTraveller && !cancelled?.byAdmin) {
           traveller.cancelled.byTraveller = false;
           traveller.cancelled.releasedAt = new Date();
+          traveller.cancelled.releasedBy = "admin"; // optional: track who released
           releasedTravellers.push(travellerIdStr);
         } else {
           notEligibleTravellers.push(travellerIdStr);
@@ -1120,38 +1174,43 @@ const bookingRelease = async (req, res) => {
       return traveller;
     });
 
-    // Identify travellers not found in booking
+    // 4. Identify any travellerIds that weren't found in this booking
     travellerIds.forEach((id) => {
       if (!booking.travellers.some((t) => String(t._id) === String(id))) {
         notFoundTravellers.push(id);
       }
     });
 
-    // If no travellers were released, respond with failure
+    // 5. If nothing was released, return detailed failure
     if (releasedTravellers.length === 0) {
       return res.status(400).json({
         success: false,
         message:
-          "No travellers released. Only traveller-cancelled (not admin-cancelled) bookings can be released.",
-        notFoundTravellers,
-        notEligibleTravellers,
+          "No travellers were released. Only traveller-initiated cancellations (not admin-rejected) can be released.",
+        details: {
+          notFoundTravellers,
+          notEligibleTravellers,
+        },
       });
     }
 
+    // 6. Save updated booking
     await booking.save();
 
+    // 7. Success response
     res.json({
       success: true,
-      message: "Some or all travellers released successfully",
+      message: `Released ${releasedTravellers.length} traveller(s) successfully`,
+      tnr: normalizedTnr,
       releasedTravellers,
       notFoundTravellers,
       notEligibleTravellers,
     });
   } catch (error) {
-    console.error(error);
+    console.error("bookingRelease error:", error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || "Server error during release",
     });
   }
 };
@@ -1167,34 +1226,36 @@ const addMissingFieldsToAllBookings = async (req, res) => {
       {
         $or: [
           { manageBooking: { $exists: false } },
-
           { advanceAdminRemarks: { $exists: false } },
           { cancellationRequest: { $exists: false } },
           { cancellationReceipt: { $exists: false } },
           { manageBookingReceipt: { $exists: false } },
-
-          // ─── New confirmation-related fields ───
           { emergencyContact: { $exists: false } },
           { termsAgreed: { $exists: false } },
           { termsAgreedAt: { $exists: false } },
+          // Check if any traveller in the array is missing the seat fields
+          { "travellers.seatNumber": { $exists: false } },
+          { "travellers.seatLocked": { $exists: false } },
         ],
       },
       {
         $set: {
           manageBooking: false,
-
           advanceAdminRemarks: [],
           cancellationRequest: false,
           cancellationReceipt: false,
           manageBookingReceipt: false,
-
-          // ─── Defaults for new fields ───
-          emergencyContact: null, // or "" if you prefer empty string
+          emergencyContact: null,
           termsAgreed: false,
-          termsAgreedAt: null, // null = never agreed / confirmed
+          termsAgreedAt: null,
+
+          // ─── Array Updates ───
+          // Using $[] updates ALL elements in the travellers array for matched docs
+          "travellers.$[].seatNumber": null,
+          "travellers.$[].seatLocked": false,
+          "travellers.$[].seatLockedAt": null,
         },
       },
-      { multi: true }, // optional – already default in updateMany, but explicit is fine
     );
 
     res.status(200).json({
@@ -1210,10 +1271,12 @@ const addMissingFieldsToAllBookings = async (req, res) => {
           "cancellationRequest",
           "cancellationReceipt",
           "manageBookingReceipt",
-          // ─── New ones added here too ───
           "emergencyContact",
           "termsAgreed",
           "termsAgreedAt",
+          "travellers.seatNumber",
+          "travellers.seatLocked",
+          "travellers.seatLockedAt",
         ],
       },
     });

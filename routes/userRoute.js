@@ -10,6 +10,9 @@ import {
   verifyRazorpay,
   cancelTraveller,
   googleSignIn,
+  getSeatAllocationByTNR,
+  getBookingDetailsByTNR,
+  confirmSeatSelection,
 } from "../controllers/userController.js";
 import authUser from "../middlewares/authUser.js";
 import { upload } from "../middlewares/multer.js";
@@ -22,7 +25,7 @@ userRouter.post(
   "/update-profile",
   upload.single("image"),
   authUser,
-  updateProfile
+  updateProfile,
 );
 
 userRouter.post("/addtotrolly", authUser, addToTrolly);
@@ -34,5 +37,8 @@ userRouter.post("/cancel-traveller", authUser, cancelTraveller);
 userRouter.post("/payment-razorpay", authUser, paymentRazorpay);
 userRouter.post("/verifyRazorpay", authUser, verifyRazorpay);
 userRouter.post("/google-signin", googleSignIn);
+userRouter.get("/seat-allocation/tnr/:tnr", getSeatAllocationByTNR);
+userRouter.get("/tnr/:tnr", getBookingDetailsByTNR);
+userRouter.post("/:tnr/confirm-seats", confirmSeatSelection);
 
 export default userRouter;

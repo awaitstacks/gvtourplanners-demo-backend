@@ -32,6 +32,11 @@ import {
   taskMarkCancellationReceipt,
   taskMarkManageBookingReceipt,
   addTour,
+  createTourVehicle,
+  updateTourVehicle,
+  toggleVehicleSeatSelection,
+  getTourVehicles,
+  deleteTourVehicle,
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
@@ -99,5 +104,20 @@ tourRouter.put(
   taskMarkManageBookingReceipt,
 );
 tourRouter.post("/add-tour", tourUpload, addTour);
+
+// 1. Create a new vehicle for a tour
+tourRouter.post("/:tourId/vehicles", authTour, createTourVehicle);
+
+tourRouter.patch("/:tourId/vehicles/:vehicleId", authTour, updateTourVehicle);
+
+tourRouter.patch(
+  "/:tourId/vehicles/:vehicleId/toggle-seat-selection",
+  authTour,
+  toggleVehicleSeatSelection,
+);
+
+tourRouter.get("/:tourId/vehicles", authTour, getTourVehicles);
+
+tourRouter.delete("/:tourId/vehicles/:vehicleId", authTour, deleteTourVehicle);
 
 export default tourRouter;
