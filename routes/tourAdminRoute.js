@@ -26,6 +26,11 @@ import {
   addTermsPoints,
   getCurrentTerms,
   deleteTermsPoint,
+  adminCreateTourVehicle,
+  adminUpdateTourVehicle,
+  adminGetTourVehicles,
+  adminDeleteTourVehicle,
+  adminToggleVehicleSeatSelection,
 } from "../controllers/tourAdminController.js";
 import authAdmin from "../middlewares/authAdmin.js";
 import { tourUpload } from "../middlewares/multer.js"; // ✅ Correct import (pre-configured fields)
@@ -80,5 +85,27 @@ touradminRouter.get("/pending-approvals", authAdmin, getPendingApprovals);
 touradminRouter.post("/terms/add-points", addTermsPoints);
 touradminRouter.delete("/terms/points/:pointId", deleteTermsPoint);
 touradminRouter.get("/terms/current", getCurrentTerms);
+
+touradminRouter.post("/:tourId/vehicles", authAdmin, adminCreateTourVehicle);
+
+touradminRouter.patch(
+  "/:tourId/vehicles/:vehicleId",
+  authAdmin,
+  adminUpdateTourVehicle,
+);
+
+touradminRouter.patch(
+  "/:tourId/vehicles/:vehicleId/toggle-seat-selection",
+  authAdmin,
+  adminToggleVehicleSeatSelection,
+);
+
+touradminRouter.get("/:tourId/vehicles", authAdmin, adminGetTourVehicles);
+
+touradminRouter.delete(
+  "/:tourId/vehicles/:vehicleId",
+  authAdmin,
+  adminDeleteTourVehicle,
+);
 
 export default touradminRouter;

@@ -995,6 +995,8 @@ const confirmSeatSelection = async (req, res) => {
         seatNumber: sel.seatLabel,
         seatLocked: true,
         seatLockedAt: now,
+        vehicleId: sel.vehicleId, // from frontend selections
+        vehicleName: sel.vehicleName,
       });
 
       if (!vehicleBookedSeatsMap.has(sel.vehicleId)) {
@@ -1015,6 +1017,8 @@ const confirmSeatSelection = async (req, res) => {
       t.seatNumber = update.seatNumber;
       t.seatLocked = update.seatLocked;
       t.seatLockedAt = update.seatLockedAt;
+      t.vehicleId = update.vehicleId;
+      t.vehicleName = update.vehicleName;
     }
 
     await booking.save({ session });

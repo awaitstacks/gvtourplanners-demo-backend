@@ -77,6 +77,16 @@ const tourBookingSchema = new mongoose.Schema({
         default: false,
       },
       seatLockedAt: { type: Date },
+      vehicleId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "tourVehicle",
+        default: null,
+      },
+      vehicleName: {
+        type: String,
+        default: null,
+        trim: true,
+      },
 
       staffRemarks: { type: String },
       remarks: { type: String },
