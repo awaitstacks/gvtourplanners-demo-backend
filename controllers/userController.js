@@ -10,6 +10,7 @@ import razorpay from "razorpay";
 import crypto from "crypto";
 import tourBookingModel from "../models/tourBookingmodel.js";
 import TourVehicle from "../models/tourVehicleModel.js";
+import PaymentMethod from "../models/paymentModel.js";
 
 // API for Google Sign-In / Sign-Up
 const googleSignIn = async (req, res) => {
@@ -1069,6 +1070,32 @@ const confirmSeatSelection = async (req, res) => {
     session.endSession();
   }
 };
+const getPaymentMethods = async (req, res) => {
+  try {
+    const methods = await PaymentMethod.find({})
+      .sort({ type: 1, createdAt: -1 })
+      .lean();
+
+    // Optional: enrich response if needed
+    const enriched = methods.map((m) => ({
+      ...m,
+      isActive: true, // you can add logic later
+      qrImage: m.qrImage || null,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      count: enriched.length,
+      paymentMethods: enriched,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch payment methods",
+      error: error.message,
+    });
+  }
+};
 export {
   registerUser,
   loginUser,
@@ -1083,4 +1110,5 @@ export {
   getSeatAllocationByTNR,
   getBookingDetailsByTNR,
   confirmSeatSelection,
+  getPaymentMethods,
 };

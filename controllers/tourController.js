@@ -1,13 +1,14 @@
-import tourModel from "../models/tourModel.js";
-
+import mongoose from "mongoose"; // Added missing import
 import jwt from "jsonwebtoken";
 import { v2 as cloudinary } from "cloudinary";
+
+import tourModel from "../models/tourModel.js";
 import tourBookingModel from "../models/tourBookingmodel.js";
 import cancellationModel from "../models/cancellationModel.js";
 import manageBookingModel from "../models/manageBookingModel.js";
 import tourRoomAllocationModel from "../models/roomModel.js";
 import TourVehicle from "../models/tourVehicleModel.js";
-import mongoose from "mongoose"; // Added missing import
+import PaymentMethod from "../models/paymentModel.js";
 
 const tourList = async (req, res) => {
   try {
@@ -3868,6 +3869,269 @@ const addTour = async (req, res) => {
   }
 };
 
+const getAllPaymentMethods = async (req, res) => {
+  try {
+    const methods = await PaymentMethod.find({})
+      .sort({ type: 1, createdAt: -1 })
+      .lean();
+
+    // Optional: enrich response if needed
+    const enriched = methods.map((m) => ({
+      ...m,
+      isActive: true, // you can add logic later
+      qrImage: m.qrImage || null,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      count: enriched.length,
+      paymentMethods: enriched,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch payment methods",
+      error: error.message,
+    });
+  }
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /api/tour/payment-methods
+// Create new payment method (Bank or UPI/QR)
+// ──────────────────────────────────────────────────────────────────────────────
+const createPaymentMethod = async (req, res) => {
+  try {
+    // Safely destructure (protect against undefined req.body)
+    const type = req.body?.type;
+
+    if (!type || !["bank", "upi"].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Type must be either 'bank' or 'upi'",
+      });
+    }
+
+    let paymentData = { type };
+
+    if (type === "bank") {
+      const {
+        accountNumber,
+        ifsc,
+        swift = "",
+        beneficiary,
+        accountType,
+      } = req.body;
+
+      if (!accountNumber || !ifsc || !beneficiary || !accountType) {
+        return res.status(400).json({
+          success: false,
+          message: "All bank fields except Swift are required",
+        });
+      }
+
+      paymentData = {
+        ...paymentData,
+        accountNumber: accountNumber.trim(),
+        ifsc: ifsc.trim().toUpperCase(),
+        swift: swift.trim() || undefined,
+        beneficiary: beneficiary.trim(),
+        accountType: accountType.trim(),
+      };
+    } else if (type === "upi") {
+      const { upiId, phone } = req.body;
+
+      if (!upiId || !phone) {
+        return res.status(400).json({
+          success: false,
+          message: "UPI ID and Phone number are required for UPI",
+        });
+      }
+
+      if (!/^[0-9]{10}$/.test(phone)) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number must be exactly 10 digits",
+        });
+      }
+
+      paymentData = {
+        ...paymentData,
+        upiId: upiId.trim(),
+        phone: phone.trim(),
+      };
+
+      // Handle QR code upload (optional)
+      if (req.file) {
+        try {
+          const result = await cloudinary.uploader.upload(req.file.path, {
+            folder: "tour-payments/qr",
+            resource_type: "image",
+          });
+          paymentData.qrImage = result.secure_url;
+        } catch (uploadErr) {
+          console.error("Cloudinary upload failed:", uploadErr);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to upload QR code image",
+          });
+        }
+      }
+    }
+
+    const newMethod = await PaymentMethod.create(paymentData);
+
+    return res.status(201).json({
+      success: true,
+      message: `${type === "bank" ? "Bank" : "UPI"} payment method created`,
+      paymentMethod: newMethod,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create payment method",
+      error: error.message,
+    });
+  }
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
+// PUT /api/tour/payment-methods/:id
+// Update existing payment method
+// ──────────────────────────────────────────────────────────────────────────────
+const updatePaymentMethod = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const type = req.body?.type;
+
+    if (!type || !["bank", "upi"].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Type must be 'bank' or 'upi'",
+      });
+    }
+
+    const updateData = { type };
+
+    if (type === "bank") {
+      const { accountNumber, ifsc, swift, beneficiary, accountType } = req.body;
+
+      if (!accountNumber || !ifsc || !beneficiary || !accountType) {
+        return res.status(400).json({
+          success: false,
+          message: "All bank fields except Swift are required",
+        });
+      }
+
+      updateData.accountNumber = accountNumber.trim();
+      updateData.ifsc = ifsc.trim().toUpperCase();
+      updateData.swift = swift ? swift.trim() : undefined;
+      updateData.beneficiary = beneficiary.trim();
+      updateData.accountType = accountType.trim();
+    } else if (type === "upi") {
+      const { upiId, phone } = req.body;
+
+      if (!upiId || !phone) {
+        return res.status(400).json({
+          success: false,
+          message: "UPI ID and Phone are required",
+        });
+      }
+
+      if (!/^[0-9]{10}$/.test(phone)) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone must be 10 digits",
+        });
+      }
+
+      updateData.upiId = upiId.trim();
+      updateData.phone = phone.trim();
+
+      // Optional: replace QR only if a new file is uploaded
+      if (req.file) {
+        try {
+          const result = await cloudinary.uploader.upload(req.file.path, {
+            folder: "tour-payments/qr",
+            resource_type: "image",
+          });
+          updateData.qrImage = result.secure_url;
+        } catch (uploadErr) {
+          return res.status(500).json({
+            success: false,
+            message: "Failed to upload new QR code image",
+          });
+        }
+      }
+    }
+
+    const updated = await PaymentMethod.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment method not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment method updated successfully",
+      paymentMethod: updated,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update payment method",
+      error: error.message,
+    });
+  }
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
+// DELETE /api/payment-methods/:id
+// Delete a payment method
+// ──────────────────────────────────────────────────────────────────────────────
+const deletePaymentMethod = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const deleted = await PaymentMethod.findByIdAndDelete(id);
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment method not found",
+      });
+    }
+
+    // Optional: delete QR image from Cloudinary if exists
+    if (deleted.qrImage) {
+      try {
+        const publicId = deleted.qrImage.split("/").pop().split(".")[0];
+        await cloudinary.uploader.destroy(`tour-payments/qr/${publicId}`);
+      } catch (cloudErr) {
+        // Don't fail the request — just log
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment method deleted successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete payment method",
+      error: error.message,
+    });
+  }
+};
+
 export {
   tourList,
   loginTour,
@@ -3906,4 +4170,8 @@ export {
   getTourVehicles,
   deleteTourVehicle,
   addTour,
+  getAllPaymentMethods,
+  createPaymentMethod,
+  updatePaymentMethod,
+  deletePaymentMethod,
 };

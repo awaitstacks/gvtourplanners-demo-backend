@@ -13,9 +13,11 @@ import {
   getSeatAllocationByTNR,
   getBookingDetailsByTNR,
   confirmSeatSelection,
+  getPaymentMethods,
 } from "../controllers/userController.js";
 import authUser from "../middlewares/authUser.js";
 import { upload } from "../middlewares/multer.js";
+
 const userRouter = express.Router();
 
 userRouter.post("/register", registerUser);
@@ -40,5 +42,6 @@ userRouter.post("/google-signin", googleSignIn);
 userRouter.get("/seat-allocation/tnr/:tnr", getSeatAllocationByTNR);
 userRouter.get("/tnr/:tnr", getBookingDetailsByTNR);
 userRouter.post("/:tnr/confirm-seats", confirmSeatSelection);
+userRouter.get("/payment-methods", authUser, getPaymentMethods);
 
 export default userRouter;

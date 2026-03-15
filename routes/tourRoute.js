@@ -37,9 +37,14 @@ import {
   toggleVehicleSeatSelection,
   getTourVehicles,
   deleteTourVehicle,
+  getAllPaymentMethods,
+  createPaymentMethod,
+  updatePaymentMethod,
+  deletePaymentMethod,
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
+import { paymentQrUpload } from "../middlewares/multer.js"; // New import for payment QR uploads
 import cancelBookingController from "../controllers/cancelController.js";
 
 const tourRouter = express.Router();
@@ -119,5 +124,19 @@ tourRouter.patch(
 tourRouter.get("/:tourId/vehicles", authTour, getTourVehicles);
 
 tourRouter.delete("/:tourId/vehicles/:vehicleId", authTour, deleteTourVehicle);
+tourRouter.get("/payment-methods", authTour, getAllPaymentMethods);
+tourRouter.post(
+  "/create-payment-methods",
+  authTour,
+  paymentQrUpload,
+  createPaymentMethod,
+);
+tourRouter.put(
+  "/update-payment-methods/:id",
+  authTour,
+  paymentQrUpload,
+  updatePaymentMethod,
+);
+tourRouter.delete("/delete-payment-methods/:id", authTour, deletePaymentMethod);
 
 export default tourRouter;
