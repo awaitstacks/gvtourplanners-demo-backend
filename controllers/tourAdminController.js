@@ -12,6 +12,7 @@ import cancellationModel from "../models/cancellationModel.js";
 import tourRoomAllocationModel from "../models/roomModel.js";
 import manageBookingModel from "../models/manageBookingModel.js";
 import TourVehicle from "../models/tourVehicleModel.js";
+import PaymentMethod from "../models/paymentModel.js";
 
 // controllers/adminController.js   (or wherever your admin controllers live)
 
@@ -2861,6 +2862,34 @@ const adminDeleteTourVehicle = async (req, res) => {
     session.endSession();
   }
 };
+
+const getAllPaymentMethods = async (req, res) => {
+  try {
+    const methods = await PaymentMethod.find({})
+      .sort({ type: 1, createdAt: -1 })
+      .lean();
+
+    // Enrich response (optional fields + isActive flag)
+    const enriched = methods.map((m) => ({
+      ...m,
+      isActive: true, // you can add real logic later (e.g., based on date or flag)
+      qrImage: m.qrImage || null,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      count: enriched.length,
+      paymentMethods: enriched,
+    });
+  } catch (error) {
+    console.error("getAllPaymentMethods error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch payment methods",
+      error: error.message,
+    });
+  }
+};
 export {
   loginAdmin,
   allTours,
@@ -2895,4 +2924,5 @@ export {
   adminToggleVehicleSeatSelection,
   adminGetTourVehicles,
   adminDeleteTourVehicle,
+  getAllPaymentMethods,
 };

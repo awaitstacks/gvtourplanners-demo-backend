@@ -3875,10 +3875,10 @@ const getAllPaymentMethods = async (req, res) => {
       .sort({ type: 1, createdAt: -1 })
       .lean();
 
-    // Optional: enrich response if needed
+    // Enrich response (optional fields + isActive flag)
     const enriched = methods.map((m) => ({
       ...m,
-      isActive: true, // you can add logic later
+      isActive: true, // you can add real logic later (e.g., based on date or flag)
       qrImage: m.qrImage || null,
     }));
 
@@ -3888,6 +3888,7 @@ const getAllPaymentMethods = async (req, res) => {
       paymentMethods: enriched,
     });
   } catch (error) {
+    console.error("getAllPaymentMethods error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch payment methods",
@@ -3902,8 +3903,7 @@ const getAllPaymentMethods = async (req, res) => {
 // ──────────────────────────────────────────────────────────────────────────────
 const createPaymentMethod = async (req, res) => {
   try {
-    // Safely destructure (protect against undefined req.body)
-    const type = req.body?.type;
+    const type = req.body?.type?.trim();
 
     if (!type || !["bank", "upi"].includes(type)) {
       return res.status(400).json({
@@ -3916,6 +3916,8 @@ const createPaymentMethod = async (req, res) => {
 
     if (type === "bank") {
       const {
+        bankName,
+        branchName,
         accountNumber,
         ifsc,
         swift = "",
@@ -3923,15 +3925,26 @@ const createPaymentMethod = async (req, res) => {
         accountType,
       } = req.body;
 
-      if (!accountNumber || !ifsc || !beneficiary || !accountType) {
+      // Required fields validation
+      if (
+        !bankName?.trim() ||
+        !branchName?.trim() ||
+        !accountNumber?.trim() ||
+        !ifsc?.trim() ||
+        !beneficiary?.trim() ||
+        !accountType?.trim()
+      ) {
         return res.status(400).json({
           success: false,
-          message: "All bank fields except Swift are required",
+          message:
+            "All bank fields (bankName, branchName, accountNumber, IFSC, beneficiary, accountType) are required",
         });
       }
 
       paymentData = {
         ...paymentData,
+        bankName: bankName.trim(),
+        branchName: branchName.trim(),
         accountNumber: accountNumber.trim(),
         ifsc: ifsc.trim().toUpperCase(),
         swift: swift.trim() || undefined,
@@ -3941,14 +3954,14 @@ const createPaymentMethod = async (req, res) => {
     } else if (type === "upi") {
       const { upiId, phone } = req.body;
 
-      if (!upiId || !phone) {
+      if (!upiId?.trim() || !phone?.trim()) {
         return res.status(400).json({
           success: false,
           message: "UPI ID and Phone number are required for UPI",
         });
       }
 
-      if (!/^[0-9]{10}$/.test(phone)) {
+      if (!/^[0-9]{10}$/.test(phone.trim())) {
         return res.status(400).json({
           success: false,
           message: "Phone number must be exactly 10 digits",
@@ -3983,10 +3996,11 @@ const createPaymentMethod = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: `${type === "bank" ? "Bank" : "UPI"} payment method created`,
+      message: `${type === "bank" ? "Bank" : "UPI"} payment method created successfully`,
       paymentMethod: newMethod,
     });
   } catch (error) {
+    console.error("createPaymentMethod error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to create payment method",
@@ -3994,7 +4008,6 @@ const createPaymentMethod = async (req, res) => {
     });
   }
 };
-
 // ──────────────────────────────────────────────────────────────────────────────
 // PUT /api/tour/payment-methods/:id
 // Update existing payment method
@@ -4003,7 +4016,7 @@ const updatePaymentMethod = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const type = req.body?.type;
+    const type = req.body?.type?.trim();
 
     if (!type || !["bank", "upi"].includes(type)) {
       return res.status(400).json({
@@ -4015,39 +4028,59 @@ const updatePaymentMethod = async (req, res) => {
     const updateData = { type };
 
     if (type === "bank") {
-      const { accountNumber, ifsc, swift, beneficiary, accountType } = req.body;
+      const {
+        bankName,
+        branchName,
+        accountNumber,
+        ifsc,
+        swift,
+        beneficiary,
+        accountType,
+      } = req.body;
 
-      if (!accountNumber || !ifsc || !beneficiary || !accountType) {
+      // Required fields validation (allow partial updates, but check if provided)
+      if (bankName !== undefined && !bankName.trim()) {
         return res.status(400).json({
           success: false,
-          message: "All bank fields except Swift are required",
+          message: "Bank name cannot be empty",
+        });
+      }
+      if (branchName !== undefined && !branchName.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "Branch name cannot be empty",
         });
       }
 
-      updateData.accountNumber = accountNumber.trim();
-      updateData.ifsc = ifsc.trim().toUpperCase();
-      updateData.swift = swift ? swift.trim() : undefined;
-      updateData.beneficiary = beneficiary.trim();
-      updateData.accountType = accountType.trim();
+      // Only update fields that are sent in request
+      if (bankName !== undefined) updateData.bankName = bankName.trim();
+      if (branchName !== undefined) updateData.branchName = branchName.trim();
+      if (accountNumber !== undefined)
+        updateData.accountNumber = accountNumber.trim();
+      if (ifsc !== undefined) updateData.ifsc = ifsc.trim().toUpperCase();
+      if (swift !== undefined) updateData.swift = swift.trim() || undefined;
+      if (beneficiary !== undefined)
+        updateData.beneficiary = beneficiary.trim();
+      if (accountType !== undefined)
+        updateData.accountType = accountType.trim();
     } else if (type === "upi") {
       const { upiId, phone } = req.body;
 
-      if (!upiId || !phone) {
+      if (upiId !== undefined && !upiId.trim()) {
         return res.status(400).json({
           success: false,
-          message: "UPI ID and Phone are required",
+          message: "UPI ID cannot be empty",
+        });
+      }
+      if (phone !== undefined && !/^[0-9]{10}$/.test(phone.trim())) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number must be exactly 10 digits",
         });
       }
 
-      if (!/^[0-9]{10}$/.test(phone)) {
-        return res.status(400).json({
-          success: false,
-          message: "Phone must be 10 digits",
-        });
-      }
-
-      updateData.upiId = upiId.trim();
-      updateData.phone = phone.trim();
+      if (upiId !== undefined) updateData.upiId = upiId.trim();
+      if (phone !== undefined) updateData.phone = phone.trim();
 
       // Optional: replace QR only if a new file is uploaded
       if (req.file) {
@@ -4058,6 +4091,7 @@ const updatePaymentMethod = async (req, res) => {
           });
           updateData.qrImage = result.secure_url;
         } catch (uploadErr) {
+          console.error("Cloudinary upload failed:", uploadErr);
           return res.status(500).json({
             success: false,
             message: "Failed to upload new QR code image",
@@ -4084,6 +4118,7 @@ const updatePaymentMethod = async (req, res) => {
       paymentMethod: updated,
     });
   } catch (error) {
+    console.error("updatePaymentMethod error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to update payment method",
@@ -4091,7 +4126,6 @@ const updatePaymentMethod = async (req, res) => {
     });
   }
 };
-
 // ──────────────────────────────────────────────────────────────────────────────
 // DELETE /api/payment-methods/:id
 // Delete a payment method
@@ -4115,7 +4149,8 @@ const deletePaymentMethod = async (req, res) => {
         const publicId = deleted.qrImage.split("/").pop().split(".")[0];
         await cloudinary.uploader.destroy(`tour-payments/qr/${publicId}`);
       } catch (cloudErr) {
-        // Don't fail the request — just log
+        console.warn("Failed to delete QR from Cloudinary:", cloudErr);
+        // Do not fail the request — just log
       }
     }
 
@@ -4124,6 +4159,7 @@ const deletePaymentMethod = async (req, res) => {
       message: "Payment method deleted successfully",
     });
   } catch (error) {
+    console.error("deletePaymentMethod error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to delete payment method",
@@ -4131,7 +4167,6 @@ const deletePaymentMethod = async (req, res) => {
     });
   }
 };
-
 export {
   tourList,
   loginTour,

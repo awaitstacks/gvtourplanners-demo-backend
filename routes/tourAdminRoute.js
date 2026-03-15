@@ -31,6 +31,7 @@ import {
   adminGetTourVehicles,
   adminDeleteTourVehicle,
   adminToggleVehicleSeatSelection,
+  getAllPaymentMethods,
 } from "../controllers/tourAdminController.js";
 import authAdmin from "../middlewares/authAdmin.js";
 import { tourUpload } from "../middlewares/multer.js"; // ✅ Correct import (pre-configured fields)
@@ -107,5 +108,6 @@ touradminRouter.delete(
   authAdmin,
   adminDeleteTourVehicle,
 );
+touradminRouter.get("/payment-methods", authAdmin, getAllPaymentMethods);
 
 export default touradminRouter;
