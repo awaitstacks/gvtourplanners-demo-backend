@@ -2890,6 +2890,174 @@ const getAllPaymentMethods = async (req, res) => {
     });
   }
 };
+const adminFetchTourVehicleSeatOverview = async (req, res) => {
+  try {
+    const { tourId } = req.params;
+
+    if (!mongoose.isValidObjectId(tourId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid tour ID format",
+      });
+    }
+
+    // 1. Fetch relevant bookings
+    const bookings = await tourBookingModel
+      .find({
+        tourId: new mongoose.Types.ObjectId(tourId),
+      })
+      .select(
+        "tnr " +
+          "travellers.firstName travellers.lastName " +
+          "travellers.vehicleId travellers.vehicleName " +
+          "travellers.seatNumber travellers.seatLocked " +
+          "travellers.cancelled",
+      )
+      .lean();
+
+    if (!bookings || bookings.length === 0) {
+      return res.json({
+        success: true,
+        tourId,
+        totalBookings: 0,
+        totalTravellers: 0,
+        vehicles: [],
+        message: "No bookings found for this tour",
+      });
+    }
+
+    // 2. Collect vehicle IDs only from travellers with seat + not cancelled
+    const vehicleIds = new Set();
+    bookings.forEach((booking) => {
+      booking.travellers?.forEach((traveller) => {
+        const hasSeat =
+          traveller.seatNumber && String(traveller.seatNumber).trim() !== "";
+        if (
+          !traveller.cancelled?.byAdmin &&
+          !traveller.cancelled?.byTraveller &&
+          hasSeat &&
+          traveller.vehicleId
+        ) {
+          vehicleIds.add(traveller.vehicleId.toString());
+        }
+      });
+    });
+
+    // 3. Load only relevant vehicles – FIXED fields to match schema (vehicleName + totalSeats)
+    const vehicles = await TourVehicle.find({
+      _id: {
+        $in: [...vehicleIds].map((id) => new mongoose.Types.ObjectId(id)),
+      },
+    })
+      .select("vehicleName totalSeats") // ← Changed to match schema
+      .lean();
+
+    const vehicleMap = new Map();
+    vehicles.forEach((vehicle) => {
+      const idStr = vehicle._id.toString();
+      vehicleMap.set(idStr, {
+        vehicleId: idStr,
+        vehicleName: vehicle.vehicleName || "Unnamed Vehicle",
+        capacity: Number(vehicle.totalSeats) || 0, // ← Use totalSeats from schema
+        bookedSeats: 0,
+        remainingSeats: 0,
+        travellers: [],
+      });
+    });
+
+    // 4. Process only travellers with seatNumber
+    const unassigned = {
+      vehicleName: "Not Assigned",
+      vehicleId: null,
+      capacity: null,
+      bookedSeats: 0,
+      remainingSeats: null,
+      travellers: [],
+    };
+
+    let totalTravellersCount = 0;
+
+    bookings.forEach((booking) => {
+      booking.travellers?.forEach((traveller) => {
+        // Skip if:
+        // - cancelled, or
+        // - no seat number assigned
+        const hasSeat =
+          traveller.seatNumber && String(traveller.seatNumber).trim() !== "";
+        if (
+          traveller.cancelled?.byAdmin ||
+          traveller.cancelled?.byTraveller ||
+          !hasSeat
+        ) {
+          return;
+        }
+
+        totalTravellersCount++;
+
+        const travellerData = {
+          tnr: booking.tnr || "(no TNR)",
+          name:
+            [traveller.firstName, traveller.lastName]
+              .filter(Boolean)
+              .join(" ")
+              .trim() || "(no name)",
+          seat: traveller.seatNumber || "—", // already checked above
+          locked: traveller.seatLocked === true ? "Yes" : "No",
+        };
+
+        if (traveller.vehicleId) {
+          const vid = traveller.vehicleId.toString();
+          const veh = vehicleMap.get(vid);
+
+          if (veh) {
+            veh.travellers.push(travellerData);
+            veh.bookedSeats += 1;
+          } else {
+            // orphaned vehicle reference → treat as unassigned
+            unassigned.travellers.push(travellerData);
+            unassigned.bookedSeats += 1;
+          }
+        } else {
+          unassigned.travellers.push(travellerData);
+          unassigned.bookedSeats += 1;
+        }
+      });
+    });
+
+    // 5. Prepare final list
+    const resultVehicles = [...vehicleMap.values()];
+
+    // Sort vehicles by name
+    resultVehicles.sort((a, b) => a.vehicleName.localeCompare(b.vehicleName));
+
+    // Unassigned at the end (only if has booked travellers)
+    if (unassigned.travellers.length > 0) {
+      resultVehicles.push(unassigned);
+    }
+
+    // 6. Calculate remaining seats
+    resultVehicles.forEach((v) => {
+      if (v.capacity !== null && typeof v.capacity === "number") {
+        v.remainingSeats = Math.max(0, v.capacity - v.bookedSeats);
+      }
+    });
+
+    return res.json({
+      success: true,
+      tourId,
+      totalBookings: bookings.length,
+      totalTravellers: totalTravellersCount, // ← only seated travellers
+      vehicles: resultVehicles,
+    });
+  } catch (error) {
+    console.error("getTourVehicleSeatOverview error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching vehicle & seat allocation overview",
+      error: error.message,
+    });
+  }
+};
 export {
   loginAdmin,
   allTours,
@@ -2925,4 +3093,5 @@ export {
   adminGetTourVehicles,
   adminDeleteTourVehicle,
   getAllPaymentMethods,
+  adminFetchTourVehicleSeatOverview,
 };

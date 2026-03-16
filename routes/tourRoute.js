@@ -41,6 +41,7 @@ import {
   createPaymentMethod,
   updatePaymentMethod,
   deletePaymentMethod,
+  getTourVehicleSeatOverview,
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
@@ -122,6 +123,12 @@ tourRouter.patch(
 );
 
 tourRouter.get("/:tourId/vehicles", authTour, getTourVehicles);
+// Vehicle seat allocation overview for a tour (shows only seated travellers)
+tourRouter.get(
+  "/:tourId/vehicle-seat-allocation",
+  authTour,
+  getTourVehicleSeatOverview,
+);
 
 tourRouter.delete("/:tourId/vehicles/:vehicleId", authTour, deleteTourVehicle);
 tourRouter.get("/payment-methods", authTour, getAllPaymentMethods);
