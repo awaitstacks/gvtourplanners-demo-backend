@@ -194,7 +194,21 @@ const addToTrolly = async (req, res) => {
       contact,
     } = req.body;
     const userId = req.user._id;
+    const mobile = (contact?.mobile || "").trim();
+    if (!mobile) {
+      return res.status(400).json({
+        success: false,
+        message: "Mobile number is required.",
+      });
+    }
 
+    if (!/^[\d+\-\s()]{7,25}$/.test(mobile)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid mobile number format. Use digits, +, -, spaces or parentheses.",
+      });
+    }
     // Validate required fields
     if (!tourId) {
       return res.status(400).json({

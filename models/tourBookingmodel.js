@@ -118,7 +118,8 @@ const tourBookingSchema = new mongoose.Schema({
     mobile: {
       type: String,
       required: true,
-      match: [/^[0-9]{10}$/, "Please enter a valid 10-digit mobile number"],
+      trim: true,
+      match: [/^[\d+\-\s()]{7,25}$/, "Invalid phone number format"],
     },
   },
 
@@ -187,7 +188,7 @@ const tourBookingSchema = new mongoose.Schema({
   cancellationRequest: { type: Boolean, default: false },
   emergencyContact: {
     type: String,
-    match: [/^[0-9]{10}$/, "Please enter a valid 10-digit mobile number"],
+    match: [/^[\d+\-\s()]{7,25}$/, "Invalid phone number format"],
     default: null, // or "" if you prefer empty string
   },
 

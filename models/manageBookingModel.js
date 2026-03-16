@@ -91,7 +91,8 @@ const manageBookingSchema = new mongoose.Schema({
     mobile: {
       type: String,
       required: true,
-      match: [/^[0-9]{10}$/, "Please enter a valid 10-digit mobile number"],
+      trim: true,
+      match: [/^[\d+\-\s()]{7,25}$/, "Invalid phone number format"],
     },
   },
 

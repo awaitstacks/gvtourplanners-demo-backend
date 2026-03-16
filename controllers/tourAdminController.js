@@ -2393,10 +2393,14 @@ const submitTermsAgreement = async (req, res) => {
       });
     }
 
-    if (!emergencyContact || !/^[0-9]{10}$/.test(emergencyContact)) {
+    if (
+      !emergencyContact ||
+      !/^[\d+\-\s()]{7,25}$/.test(emergencyContact.trim())
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Emergency contact must be a valid 10-digit number",
+        message:
+          "Please enter a valid emergency contact number (7–25 characters: digits, +, -, spaces, parentheses allowed)",
       });
     }
 
