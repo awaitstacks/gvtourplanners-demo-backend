@@ -1315,7 +1315,7 @@ const getPendingApprovals = async (req, res) => {
       .populate({
         path: "bookingId",
         select:
-          "travellers contact bookingType payment receipts bookingDate gvCancellationPool irctcCancellationPool adminRemarks",
+          "tnr travellers contact bookingType payment receipts bookingDate gvCancellationPool irctcCancellationPool adminRemarks",
         populate: {
           path: "tourId",
           select: "title",
