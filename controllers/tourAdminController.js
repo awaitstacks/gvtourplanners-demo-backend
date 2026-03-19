@@ -2148,6 +2148,63 @@ const bookingRejectAdmin = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+// Add this new function
+
+const deleteBookingByTNR = async (req, res) => {
+  try {
+    const { tnr } = req.body;
+
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid 6-character TNR is required",
+      });
+    }
+
+    const normalizedTNR = tnr.trim().toUpperCase();
+
+    const booking = await tourBookingModel.findOne({ tnr: normalizedTNR });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: `No booking found with TNR ${normalizedTNR}`,
+      });
+    }
+
+    // Optional: Prevent deletion if already paid / completed / etc.
+    if (booking.payment?.balance?.paid) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Cannot delete this booking — balance payment has already been made.",
+      });
+    }
+
+    if (booking.isBookingCompleted) {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot delete completed bookings.",
+      });
+    }
+
+    // Actually delete
+    await tourBookingModel.deleteOne({ tnr: normalizedTNR });
+
+    return res.json({
+      success: true,
+      message: `Booking with TNR ${normalizedTNR} has been permanently deleted.`,
+      deletedTNR: normalizedTNR,
+    });
+  } catch (error) {
+    console.error("deleteBookingByTNR error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while deleting booking",
+      error: error.message,
+    });
+  }
+};
 
 const addTermsPoints = async (req, res) => {
   try {
@@ -3098,4 +3155,5 @@ export {
   adminDeleteTourVehicle,
   getAllPaymentMethods,
   adminFetchTourVehicleSeatOverview,
+  deleteBookingByTNR,
 };

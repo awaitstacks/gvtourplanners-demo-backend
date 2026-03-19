@@ -33,6 +33,7 @@ import {
   adminToggleVehicleSeatSelection,
   getAllPaymentMethods,
   adminFetchTourVehicleSeatOverview,
+  deleteBookingByTNR,
 } from "../controllers/tourAdminController.js";
 import authAdmin from "../middlewares/authAdmin.js";
 import { tourUpload } from "../middlewares/multer.js"; // ✅ Correct import (pre-configured fields)
@@ -46,6 +47,7 @@ touradminRouter.post("/all-tours", authAdmin, allTours);
 touradminRouter.post("/generate-missing-tnrs", authAdmin, generateMissingTNRs);
 
 touradminRouter.post("/reject-bookingadmin", authAdmin, bookingRejectAdmin);
+touradminRouter.post("/delete-booking", authAdmin, deleteBookingByTNR);
 touradminRouter.post("/release-bookingadmin", authAdmin, bookingRelease);
 touradminRouter.post(
   "/change-touravailablity",

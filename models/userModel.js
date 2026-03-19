@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema({
   },
   address: { type: Object, default: { line1: "", line2: "" } },
   gender: { type: String, default: "Not Selected" },
-  dob: { type: String, default: "Not Selected" },
+  dob: { type: Date, default: null },
   phone: { type: String, default: "+91 xxxxx xxxxx" },
   bookedTours: [{ type: mongoose.Schema.Types.ObjectId, ref: "tourbooking" }],
 });
