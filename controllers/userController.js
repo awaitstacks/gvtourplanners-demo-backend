@@ -41,7 +41,8 @@ const googleSignIn = async (req, res) => {
 
     if (!user) {
       // New user → auto register
-      const hashedPassword = await bcrypt.genSalt(10); // random unused hash
+      const randomPassword = Math.random().toString(36);
+      const hashedPassword = await bcrypt.hash(randomPassword, 10); // ✅
       user = new userModel({
         name: name || "Google User",
         email,
@@ -52,6 +53,7 @@ const googleSignIn = async (req, res) => {
       await user.save();
     } else {
       // Existing user → just log them in (optional: update name/image)
+      if (!user.googleId) user.googleId = googleId;
       user.name = user.name || name;
       user.image = user.image || picture;
       await user.save();
