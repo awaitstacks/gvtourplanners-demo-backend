@@ -9,6 +9,7 @@ import manageBookingModel from "../models/manageBookingModel.js";
 import tourRoomAllocationModel from "../models/roomModel.js";
 import TourVehicle from "../models/tourVehicleModel.js";
 import PaymentMethod from "../models/paymentModel.js";
+import BalanceMethod from "../models/balanceReminderModel.js";
 
 const tourList = async (req, res) => {
   try {
@@ -951,48 +952,48 @@ const updateTourProfile = async (req, res) => {
             excludes: Array.isArray(variant.excludes) ? variant.excludes : [],
             trainDetails: Array.isArray(variant.trainDetails)
               ? variant.trainDetails.map((train) => ({
-                  trainNo: train.trainNo || "",
-                  trainName: train.trainName || "",
-                  fromCode: train.fromCode || "",
-                  fromStation: train.fromStation || "",
-                  toCode: train.toCode || "",
-                  toStation: train.toStation || "",
-                  class: train.class || "",
-                  departureTime: train.departureTime || "",
-                  arrivalTime: train.arrivalTime || "",
-                  ticketOpenDate: train.ticketOpenDate || null,
-                }))
+                trainNo: train.trainNo || "",
+                trainName: train.trainName || "",
+                fromCode: train.fromCode || "",
+                fromStation: train.fromStation || "",
+                toCode: train.toCode || "",
+                toStation: train.toStation || "",
+                class: train.class || "",
+                departureTime: train.departureTime || "",
+                arrivalTime: train.arrivalTime || "",
+                ticketOpenDate: train.ticketOpenDate || null,
+              }))
               : [],
             flightDetails: Array.isArray(variant.flightDetails)
               ? variant.flightDetails.map((flight) => ({
-                  airline: flight.airline || "",
-                  flightNo: flight.flightNo || "",
-                  fromCode: flight.fromCode || "",
-                  fromAirport: flight.fromAirport || "",
-                  toCode: flight.toCode || "",
-                  toAirport: flight.toAirport || "",
-                  class: flight.class || "",
-                  departureTime: flight.departureTime || "",
-                  arrivalTime: flight.arrivalTime || "",
-                }))
+                airline: flight.airline || "",
+                flightNo: flight.flightNo || "",
+                fromCode: flight.fromCode || "",
+                fromAirport: flight.fromAirport || "",
+                toCode: flight.toCode || "",
+                toAirport: flight.toAirport || "",
+                class: flight.class || "",
+                departureTime: flight.departureTime || "",
+                arrivalTime: flight.arrivalTime || "",
+              }))
               : [],
             addons: Array.isArray(variant.addons)
               ? variant.addons.map((addon) => ({
-                  name: addon.name || "",
-                  amount: Number(addon.amount) || 0,
-                }))
+                name: addon.name || "",
+                amount: Number(addon.amount) || 0,
+              }))
               : [],
             boardingPoints: Array.isArray(variant.boardingPoints)
               ? variant.boardingPoints.map((bp) => ({
-                  stationCode: bp.stationCode || "",
-                  stationName: bp.stationName || "",
-                }))
+                stationCode: bp.stationCode || "",
+                stationName: bp.stationName || "",
+              }))
               : [],
             deboardingPoints: Array.isArray(variant.deboardingPoints)
               ? variant.deboardingPoints.map((dp) => ({
-                  stationCode: dp.stationCode || "",
-                  stationName: dp.stationName || "",
-                }))
+                stationCode: dp.stationCode || "",
+                stationName: dp.stationName || "",
+              }))
               : [],
           };
         });
@@ -2450,12 +2451,12 @@ const getManagedBookingsHistory = async (req, res) => {
         // Original Booking Reference
         originalBooking: original
           ? {
-              _id: original._id,
-              bookingDate: original.bookingDate,
-              advancePaid: original.payment?.advance?.amount || 0,
-              balanceDue: original.payment?.balance?.amount || 0,
-              totalTravellers: original.travellers?.length || 0,
-            }
+            _id: original._id,
+            bookingDate: original.bookingDate,
+            advancePaid: original.payment?.advance?.amount || 0,
+            balanceDue: original.payment?.balance?.amount || 0,
+            totalTravellers: original.travellers?.length || 0,
+          }
           : null,
 
         // Requested Updates
@@ -3725,51 +3726,51 @@ const addTour = async (req, res) => {
               excludes: Array.isArray(v.excludes) ? v.excludes : [],
               trainDetails: Array.isArray(v.trainDetails)
                 ? v.trainDetails.map((t) => ({
-                    trainNo: t.trainNo || "",
-                    trainName: t.trainName || "",
-                    fromCode: t.fromCode || "",
-                    fromStation: t.fromStation || "",
-                    toCode: t.toCode || "",
-                    toStation: t.toStation || "",
-                    class: t.class || "",
-                    departureTime: t.departureTime || "",
-                    arrivalTime: t.arrivalTime || "",
-                    ticketOpenDate: t.ticketOpenDate
-                      ? new Date(t.ticketOpenDate)
-                      : null,
-                  }))
+                  trainNo: t.trainNo || "",
+                  trainName: t.trainName || "",
+                  fromCode: t.fromCode || "",
+                  fromStation: t.fromStation || "",
+                  toCode: t.toCode || "",
+                  toStation: t.toStation || "",
+                  class: t.class || "",
+                  departureTime: t.departureTime || "",
+                  arrivalTime: t.arrivalTime || "",
+                  ticketOpenDate: t.ticketOpenDate
+                    ? new Date(t.ticketOpenDate)
+                    : null,
+                }))
                 : [],
               flightDetails: Array.isArray(v.flightDetails)
                 ? v.flightDetails.map((f) => ({
-                    airline: f.airline || "",
-                    flightNo: f.flightNo || "",
-                    fromCode: f.fromCode || "",
-                    fromAirport: f.fromAirport || "",
-                    toCode: f.toCode || "",
-                    toAirport: f.toAirport || "",
-                    class: f.class || "",
-                    departureTime: f.departureTime || "",
-                    arrivalTime: f.arrivalTime || "",
-                  }))
+                  airline: f.airline || "",
+                  flightNo: f.flightNo || "",
+                  fromCode: f.fromCode || "",
+                  fromAirport: f.fromAirport || "",
+                  toCode: f.toCode || "",
+                  toAirport: f.toAirport || "",
+                  class: f.class || "",
+                  departureTime: f.departureTime || "",
+                  arrivalTime: f.arrivalTime || "",
+                }))
                 : [],
               addons: Array.isArray(v.addons)
                 ? v.addons.map((a) => ({
-                    name: a.name || "",
-                    amount: Number(a.amount) || 0,
-                  }))
+                  name: a.name || "",
+                  amount: Number(a.amount) || 0,
+                }))
                 : [],
               remarks: v.remarks || "",
               boardingPoints: Array.isArray(v.boardingPoints)
                 ? v.boardingPoints.map((b) => ({
-                    stationCode: b.stationCode || "",
-                    stationName: b.stationName || "",
-                  }))
+                  stationCode: b.stationCode || "",
+                  stationName: b.stationName || "",
+                }))
                 : [],
               deboardingPoints: Array.isArray(v.deboardingPoints)
                 ? v.deboardingPoints.map((b) => ({
-                    stationCode: b.stationCode || "",
-                    stationName: b.stationName || "",
-                  }))
+                  stationCode: b.stationCode || "",
+                  stationName: b.stationName || "",
+                }))
                 : [],
               lastBookingDate: v.lastBookingDate
                 ? new Date(v.lastBookingDate)
@@ -3814,32 +3815,32 @@ const addTour = async (req, res) => {
       excludes: parseArrayField(excludes, "excludes"),
       trainDetails: trainDetails
         ? parseArrayField(trainDetails, "trainDetails").map((t) => ({
-            trainNo: t.trainNo || "",
-            trainName: t.trainName || "",
-            fromCode: t.fromCode || "",
-            fromStation: t.fromStation || "",
-            toCode: t.toCode || "",
-            toStation: t.toStation || "",
-            class: t.class || "",
-            departureTime: t.departureTime || "",
-            arrivalTime: t.arrivalTime || "",
-            ticketOpenDate: t.ticketOpenDate
-              ? new Date(t.ticketOpenDate)
-              : null,
-          }))
+          trainNo: t.trainNo || "",
+          trainName: t.trainName || "",
+          fromCode: t.fromCode || "",
+          fromStation: t.fromStation || "",
+          toCode: t.toCode || "",
+          toStation: t.toStation || "",
+          class: t.class || "",
+          departureTime: t.departureTime || "",
+          arrivalTime: t.arrivalTime || "",
+          ticketOpenDate: t.ticketOpenDate
+            ? new Date(t.ticketOpenDate)
+            : null,
+        }))
         : [],
       flightDetails: flightDetails
         ? parseArrayField(flightDetails, "flightDetails").map((f) => ({
-            airline: f.airline || "",
-            flightNo: f.flightNo || "",
-            fromCode: f.fromCode || "",
-            fromAirport: f.fromAirport || "",
-            toCode: f.toCode || "",
-            toAirport: f.toAirport || "",
-            class: f.class || "",
-            departureTime: f.departureTime || "",
-            arrivalTime: f.arrivalTime || "",
-          }))
+          airline: f.airline || "",
+          flightNo: f.flightNo || "",
+          fromCode: f.fromCode || "",
+          fromAirport: f.fromAirport || "",
+          toCode: f.toCode || "",
+          toAirport: f.toAirport || "",
+          class: f.class || "",
+          departureTime: f.departureTime || "",
+          arrivalTime: f.arrivalTime || "",
+        }))
         : [],
       addons: parsedAddons,
       remarks: remarks || "",
@@ -3868,6 +3869,10 @@ const addTour = async (req, res) => {
     res.json({ success: false, message: error.message });
   }
 };
+
+
+
+
 
 const getAllPaymentMethods = async (req, res) => {
   try {
@@ -4008,6 +4013,9 @@ const createPaymentMethod = async (req, res) => {
     });
   }
 };
+
+
+
 // ──────────────────────────────────────────────────────────────────────────────
 // PUT /api/tour/payment-methods/:id
 // Update existing payment method
@@ -4168,6 +4176,312 @@ const deletePaymentMethod = async (req, res) => {
   }
 };
 
+// ──────────────────────────────────────────────────────────────────────────────
+// GET /api/tour/:tourId/payment-methods
+// Get All Payment Methods for a Specific Tour
+// ──────────────────────────────────────────────────────────────────────────────
+const getTourPaymentMethods = async (req, res) => {
+  try {
+    const { tourId } = req.params;
+
+    const methods = await BalanceMethod.find({ tourId })
+      .sort({ type: 1, createdAt: -1 })
+      .lean();
+
+    const enriched = methods.map((m) => ({
+      ...m,
+      isActive: m.isActive !== false,
+      qrImage: m.qrImage || null,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      count: enriched.length,
+      paymentMethods: enriched,
+    });
+  } catch (error) {
+    console.error("getTourPaymentMethods error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch tour payment methods",
+      error: error.message,
+    });
+  }
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /api/tour/:tourId/payment-methods
+// Create Payment Method for Specific Tour
+// ──────────────────────────────────────────────────────────────────────────────
+const createTourPaymentMethod = async (req, res) => {
+  try {
+    const { tourId } = req.params;
+
+    console.log("Received tourId:", tourId); // ← Debug க்காக
+
+    if (!tourId) {
+      return res.status(400).json({
+        success: false,
+        message: "Tour ID is required in URL",
+      });
+    }
+
+    // Check if tour exists
+    const tour = await tourModel.findById(tourId);
+    if (!tour) {
+      return res.status(404).json({
+        success: false,
+        message: "Tour not found",
+      });
+    }
+
+    const type = req.body?.type?.trim().toLowerCase();
+
+    if (!type || !["bank", "upi"].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Type must be either 'bank' or 'upi'",
+      });
+    }
+
+    let paymentData = {
+      tourId,
+      type,
+      isActive: true
+    };
+
+    if (type === "bank") {
+      const {
+        bankName, branchName, accountNumber, ifsc, swift = "",
+        beneficiary, accountType
+      } = req.body;
+
+      if (!bankName?.trim() || !branchName?.trim() || !accountNumber?.trim() ||
+        !ifsc?.trim() || !beneficiary?.trim() || !accountType?.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "All bank fields are required",
+        });
+      }
+
+      paymentData = {
+        ...paymentData,
+        bankName: bankName.trim(),
+        branchName: branchName.trim(),
+        accountNumber: accountNumber.trim(),
+        ifsc: ifsc.trim().toUpperCase(),
+        swift: swift.trim() || undefined,
+        beneficiary: beneficiary.trim(),
+        accountType: accountType.trim(),
+      };
+    }
+    else if (type === "upi") {
+      const { upiId, phone } = req.body;
+
+      if (!upiId?.trim() || !phone?.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "UPI ID and Phone number are required for UPI",
+        });
+      }
+
+      if (!/^[0-9]{10}$/.test(phone.trim())) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number must be exactly 10 digits",
+        });
+      }
+
+      paymentData = {
+        ...paymentData,
+        upiId: upiId.trim(),
+        phone: phone.trim(),
+      };
+
+      if (req.file) {
+        try {
+          const result = await cloudinary.v2.uploader.upload(req.file.path, {
+            folder: `tour-payments/${tourId}/qr`,
+            resource_type: "image",
+          });
+          paymentData.qrImage = result.secure_url;
+        } catch (uploadErr) {
+          console.error("Cloudinary upload failed:", uploadErr);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to upload QR code image",
+          });
+        }
+      }
+    }
+
+    const newMethod = await BalanceMethod.create(paymentData);
+
+    return res.status(201).json({
+      success: true,
+      message: `${type.toUpperCase()} payment method created successfully for this tour`,
+      paymentMethod: newMethod,
+    });
+  } catch (error) {
+    console.error("createTourPaymentMethod error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create tour payment method",
+      error: error.message,
+    });
+  }
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
+// UPDATE PAYMENT METHOD - FIXED VERSION
+// ──────────────────────────────────────────────────────────────────────────────
+const updateTourPaymentMethod = async (req, res) => {
+  try {
+    const { tourId, id } = req.params;
+
+    const tour = await tourModel.findById(tourId);
+    if (!tour) {
+      return res.status(404).json({ success: false, message: "Tour not found" });
+    }
+
+    const type = (req.body?.type || "").toString().trim();
+
+    if (type && !["bank", "upi"].includes(type)) {
+      return res.status(400).json({ success: false, message: "Type must be 'bank' or 'upi'" });
+    }
+
+    const updateData = type ? { type } : {};
+
+    // === BANK PAYMENT ===
+    if (type === "bank" || req.body.bankName) {
+      const bankName = (req.body.bankName || "").toString().trim();
+      const branchName = (req.body.branchName || "").toString().trim();
+      const accountNumber = (req.body.accountNumber || "").toString().trim();
+      const ifsc = (req.body.ifsc || "").toString().trim();
+      const swift = (req.body.swift || "").toString().trim();
+      const beneficiary = (req.body.beneficiary || "").toString().trim();
+      const accountType = (req.body.accountType || "").toString().trim();
+
+      if (!bankName) return res.status(400).json({ success: false, message: "Bank name cannot be empty" });
+      if (!branchName) return res.status(400).json({ success: false, message: "Branch name cannot be empty" });
+
+      updateData.bankName = bankName;
+      updateData.branchName = branchName;
+      updateData.accountNumber = accountNumber;
+      updateData.ifsc = ifsc.toUpperCase();
+      updateData.swift = swift || undefined;
+      updateData.beneficiary = beneficiary;
+      updateData.accountType = accountType;
+    }
+    // === UPI PAYMENT ===
+    else if (type === "upi" || req.body.upiId) {
+      const upiId = (req.body.upiId || "").toString().trim();
+      const phone = (req.body.phone || "").toString().trim();
+
+      if (!upiId) return res.status(400).json({ success: false, message: "UPI ID cannot be empty" });
+      if (phone && !/^[0-9]{10}$/.test(phone)) {
+        return res.status(400).json({ success: false, message: "Phone number must be exactly 10 digits" });
+      }
+
+      updateData.upiId = upiId;
+      updateData.phone = phone;
+
+      if (req.file) {
+        try {
+          const result = await cloudinary.v2.uploader.upload(req.file.path, {
+            folder: `tour-payments/${tourId}/qr`,
+            resource_type: "image",
+          });
+          updateData.qrImage = result.secure_url;
+        } catch (err) {
+          console.error(err);
+          return res.status(500).json({ success: false, message: "QR upload failed" });
+        }
+      }
+    }
+
+    const updated = await BalanceMethod.findOneAndUpdate(
+      { _id: id, tourId },
+      updateData,
+      { new: true, runValidators: true }
+    ).lean();
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Payment method not found for this tour" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment method updated successfully",
+      paymentMethod: {
+        ...updated,
+        isActive: updated.isActive !== false,
+        qrImage: updated.qrImage || null,
+      }
+    });
+
+  } catch (error) {
+    console.error("updateTourPaymentMethod error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update payment method",
+      error: error.message
+    });
+  }
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
+// DELETE /api/tour/:tourId/payment-methods/:id
+// Delete Payment Method for a Specific Tour
+// ──────────────────────────────────────────────────────────────────────────────
+const deleteTourPaymentMethod = async (req, res) => {
+  try {
+    const { tourId, id } = req.params;
+
+    // Verify tour exists (optional but recommended)
+    const tour = await tourModel.findById(tourId);
+    if (!tour) {
+      return res.status(404).json({
+        success: false,
+        message: "Tour not found",
+      });
+    }
+
+    const deleted = await BalanceMethod.findOneAndDelete({ _id: id, tourId });
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment method not found for this tour",
+      });
+    }
+
+    // Optional: Delete QR image from Cloudinary
+    if (deleted.qrImage) {
+      try {
+        const publicId = deleted.qrImage.split("/").pop().split(".")[0];
+        const folder = `tour-payments/${tourId}/qr`;
+        await cloudinary.v2.uploader.destroy(`${folder}/${publicId}`);
+      } catch (cloudErr) {
+        console.warn("Failed to delete QR from Cloudinary:", cloudErr);
+        // Don't fail the request
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment method deleted successfully",
+    });
+  } catch (error) {
+    console.error("deleteTourPaymentMethod error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete payment method",
+      error: error.message,
+    });
+  }
+};
+
 const getTourVehicleSeatOverview = async (req, res) => {
   try {
     const { tourId } = req.params;
@@ -4186,10 +4500,10 @@ const getTourVehicleSeatOverview = async (req, res) => {
       })
       .select(
         "tnr " +
-          "travellers.firstName travellers.lastName " +
-          "travellers.vehicleId travellers.vehicleName " +
-          "travellers.seatNumber travellers.seatLocked " +
-          "travellers.cancelled",
+        "travellers.firstName travellers.lastName " +
+        "travellers.vehicleId travellers.vehicleName " +
+        "travellers.seatNumber travellers.seatLocked " +
+        "travellers.cancelled",
       )
       .lean();
 
@@ -4336,6 +4650,8 @@ const getTourVehicleSeatOverview = async (req, res) => {
     });
   }
 };
+
+
 export {
   tourList,
   loginTour,
@@ -4378,5 +4694,10 @@ export {
   createPaymentMethod,
   updatePaymentMethod,
   deletePaymentMethod,
+  getTourPaymentMethods,
+  createTourPaymentMethod,
+  updateTourPaymentMethod,
+  deleteTourPaymentMethod,
   getTourVehicleSeatOverview,
+
 };

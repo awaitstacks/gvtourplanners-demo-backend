@@ -42,6 +42,10 @@ import {
   updatePaymentMethod,
   deletePaymentMethod,
   getTourVehicleSeatOverview,
+  createTourPaymentMethod,
+  getTourPaymentMethods,
+  updateTourPaymentMethod,
+  deleteTourPaymentMethod,
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
@@ -144,6 +148,26 @@ tourRouter.put(
   paymentQrUpload,
   updatePaymentMethod,
 );
+
 tourRouter.delete("/delete-payment-methods/:id", authTour, deletePaymentMethod);
+
+
+tourRouter.get("/:tourId/payment-methods", authTour, getTourPaymentMethods);
+
+tourRouter.post(
+  "/:tourId/create-payment-methods",
+  authTour,
+  paymentQrUpload,
+  createTourPaymentMethod,
+);
+tourRouter.put('/:tourId/update-payment-methods/:id',
+  authTour,
+  paymentQrUpload,
+  updateTourPaymentMethod,
+);
+
+tourRouter.delete('/:tourId/delete-payment-methods/:id', authTour, deleteTourPaymentMethod);
+
+
 
 export default tourRouter;

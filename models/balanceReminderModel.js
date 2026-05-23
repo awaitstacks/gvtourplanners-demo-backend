@@ -1,9 +1,13 @@
-// models/paymentMethodModel.js
 import mongoose from "mongoose";
 
-const paymentMethodSchema = new mongoose.Schema({
+const balanceMethodSchema = new mongoose.Schema({
 
-   type: {
+  tourId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tour',
+    required: true,
+  },
+  type: {
     type: String,
     enum: ["bank", "upi"],
     required: true,
@@ -85,8 +89,8 @@ const paymentMethodSchema = new mongoose.Schema({
 );
 
 // Optional: Add index for faster queries
-paymentMethodSchema.index({ type: 1, createdAt: -1 });
+balanceMethodSchema.index({ type: 1, createdAt: -1 });
 
-const PaymentMethod = mongoose.model("PaymentMethod", paymentMethodSchema);
+const BalanceMethod = mongoose.model("BalanceMethod", balanceMethodSchema);
 
-export default PaymentMethod;
+export default BalanceMethod;
