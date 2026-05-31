@@ -1903,6 +1903,7 @@ const updateBalanceRemark = async (req, res) => {
 };
 
 // ====================== IMPROVED UPDATE ADVANCE REMARK ======================
+// ====================== FINAL CORRECT updateAdvanceRemark ======================
 const updateAdvanceRemark = async (req, res) => {
   try {
     const { tnr } = req.params;
@@ -2022,16 +2023,21 @@ const deleteAdvanceRemark = async (req, res) => {
 
     booking.advanceAdminRemarks.splice(remarkIndex, 1);
 
-    // AUTO RECALCULATE ADVANCE
-    booking.payment.advance.amount -= deletedAmount;
+    // Reverse the shift
+    booking.payment.advance.amount += deletedAmount;   // Add back to Advance
+    booking.payment.balance.amount -= deletedAmount;   // Remove from Balance
 
     await booking.save();
 
     return res.status(200).json({
       success: true,
-      message: "Advance remark deleted and advance recalculated",
-      advanceAdminRemarks: booking.advanceAdminRemarks,
-      currentAdvance: booking.payment.advance.amount
+      message: "Advance remark deleted with correct recalculation",
+      data: {
+        tnr: booking.tnr,
+        advance: booking.payment?.advance || {},
+        balance: booking.payment?.balance || {},
+        advanceAdminRemarks: booking.advanceAdminRemarks || [],
+      }
     });
   } catch (error) {
     console.error("deleteAdvanceRemark error:", error);
