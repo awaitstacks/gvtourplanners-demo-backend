@@ -58,6 +58,13 @@ import cancelBookingController from "../controllers/cancelController.js";
 
 const tourRouter = express.Router();
 
+// Balance Remarks
+tourRouter.put("/balance/:tnr/remark", authTour,updateBalanceRemark);           // Edit remark
+tourRouter.delete("/balance/:tnr/remark",authTour, deleteBalanceRemark);        // Delete remark
+// Advance Remarks
+tourRouter.put("/advance/:tnr/remark", authTour, updateAdvanceRemark);           // Edit remark
+tourRouter.delete("/advance/:tnr/remark", authTour, deleteAdvanceRemark);        // Delete remark
+
 tourRouter.get("/list", tourList);
 tourRouter.post("/login", loginTour);
 tourRouter.get("/bookings-tour/:tourId", authTour, bookingsTour);
@@ -77,12 +84,6 @@ tourRouter.get("/view-tour-advance/:tnr", authTour, viewTourAdvance);
 // tourRouter.post("/update-tour-balance/:bookingId", authTour, updateTourBalance);
 tourRouter.post("/update-tour-balance/:tnr", authTour, updateTourBalance);
 tourRouter.post("/update-tour-advance/:tnr", authTour, updateTourAdvance);
-// Balance Remarks
-tourRouter.put("/balance/:tnr/remark", authTour,updateBalanceRemark);           // Edit remark
-tourRouter.delete("/balance/:tnr/remark",authTour, deleteBalanceRemark);        // Delete remark
-// Advance Remarks
-tourRouter.put("/advance/:tnr/remark", authTour, updateAdvanceRemark);           // Edit remark
-tourRouter.delete("/advance/:tnr/remark", authTour, deleteAdvanceRemark);        // Delete remark
 
 tourRouter.put("/mark-modify-receipt", authTour, updateModifyReceipt); // New route
 tourRouter.get("/view-booking-cancel/:tnr", viewBooking); // New route
