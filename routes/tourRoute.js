@@ -46,6 +46,10 @@ import {
   getTourPaymentMethods,
   updateTourPaymentMethod,
   deleteTourPaymentMethod,
+  updateBalanceRemark,
+  deleteBalanceRemark,
+  updateAdvanceRemark,
+  deleteAdvanceRemark,
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
@@ -73,6 +77,13 @@ tourRouter.get("/view-tour-advance/:tnr", authTour, viewTourAdvance);
 // tourRouter.post("/update-tour-balance/:bookingId", authTour, updateTourBalance);
 tourRouter.post("/update-tour-balance/:tnr", authTour, updateTourBalance);
 tourRouter.post("/update-tour-advance/:tnr", authTour, updateTourAdvance);
+// Balance Remarks
+tourRouter.put("/balance/:tnr/remark", authTour,updateBalanceRemark);           // Edit remark
+tourRouter.delete("/balance/:tnr/remark",authTour, deleteBalanceRemark);        // Delete remark
+// Advance Remarks
+tourRouter.put("/advance/:tnr/remark", authTour, updateAdvanceRemark);           // Edit remark
+tourRouter.delete("/advance/:tnr/remark", authTour, deleteAdvanceRemark);        // Delete remark
+
 tourRouter.put("/mark-modify-receipt", authTour, updateModifyReceipt); // New route
 tourRouter.get("/view-booking-cancel/:tnr", viewBooking); // New route
 tourRouter.get("/cancelled-bookings/:tnr", getCancellationsByBooking); // New route
@@ -167,6 +178,7 @@ tourRouter.put('/:tourId/update-payment-methods/:id',
 );
 
 tourRouter.delete('/:tourId/delete-payment-methods/:id', authTour, deleteTourPaymentMethod);
+
 
 
 
