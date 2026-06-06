@@ -42,6 +42,7 @@ const roomSchema = new mongoose.Schema(
         message: "Occupants exceed sharing type capacity",
       },
     },
+
   },
   { _id: false }
 );
@@ -82,6 +83,65 @@ const bookingRoomSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/* ================= Occupant Schema ================= */
+/* ================= Occupant Schema ================= */
+const manualOccupantSchema = new mongoose.Schema(
+  {
+    firstName: { type: String, required: true, trim: true },
+    lastName: { type: String, required: true, trim: true },
+    gender: {
+      type: String,
+      enum: ["Male", "Female"],
+      required: true,
+    },
+    sharingType: {        // ✅ ADD THIS
+      type: String,
+      enum: ["withBerth", "withoutBerth"],
+      default: null,
+    },
+
+  },
+  { _id: false }
+);
+
+/* ================= Manual Room Schema ================= */
+const manualRoomSchema = new mongoose.Schema(
+  {
+    roomNumber: { type: Number, required: true },
+    mobile: {
+      type: String,
+      required: true,
+      match: [/^[0-9]{10}$/, "Invalid mobile number"],
+    },
+    sharingType: {
+      type: String,
+      enum: ["single", "double", "triple", "quad"],
+      required: true,
+    },
+    occupants: {
+      type: [manualOccupantSchema],
+      required: true,
+      validate: {
+        validator: function (value) {
+          const count = value.length;
+          if (this.sharingType === "single") return count <= 1;
+          if (this.sharingType === "double") return count <= 2;
+          if (this.sharingType === "triple") return count <= 3;
+          if (this.sharingType === "quad") return count <= 4;
+          return true;
+        },
+        message: "Occupants exceed room capacity",
+      },
+    },
+    type: {
+      type: String,
+      enum: ["guest", "leader"],
+      required: true,
+    },
+    addedAt: { type: Date, default: Date.now },
+  },
+  { _id: true }
+);
 /* ---------------- Tour Room Allocation ---------------- */
 const tourRoomAllocationSchema = new mongoose.Schema(
   {
@@ -94,6 +154,16 @@ const tourRoomAllocationSchema = new mongoose.Schema(
 
     groupedByMobile: [mobileGroupSchema],
     bookings: [bookingRoomSchema],
+
+    // ✅ Final Nested Object Structure
+    manuallyAddedRooms: {
+      type: {
+        leaders: { type: [manualRoomSchema], default: [] },
+        guests: { type: [manualRoomSchema], default: [] },
+      },
+      default: { leaders: [], guests: [] }
+    },
+
     grouped: { type: Boolean, default: true },
     isFinalized: { type: Boolean, default: false },
   },

@@ -2793,6 +2793,404 @@ const getManagedBookingsHistory = async (req, res) => {
   }
 };
 
+// const allotRooms = async (req, res) => {
+//   try {
+//     const { tourId } = req.params;
+//     if (!tourId || !mongoose.Types.ObjectId.isValid(tourId)) {
+//       return res.status(400).json({ error: "Valid tourId is required" });
+//     }
+
+//     const objectTourId = new mongoose.Types.ObjectId(tourId);
+
+//     const bookings = await tourBookingModel
+//       .find({
+//         tourId: objectTourId,
+//         "cancelled.byAdmin": false,
+//         "cancelled.byTraveller": false,
+//       })
+//       .lean();
+
+//     if (bookings.length === 0) {
+//       return res.json({
+//         tourId,
+//         unpaidGuests: [],
+//         roomAllocations: [],
+//         message: "No active bookings found for this tour.",
+//       });
+//     }
+
+//     // === Separate paid and unpaid ===
+//     const paidBookings = bookings.filter(
+//       (b) => b.payment.advance.paid && b.payment.advance.paymentVerified,
+//     );
+
+//     const unpaidBookings = bookings.filter(
+//       (b) => !b.payment.advance.paid || !b.payment.advance.paymentVerified,
+//     );
+
+//     const unpaidGuests = [];
+//     unpaidBookings.forEach((booking) => {
+//       booking.travellers.forEach((traveller) => {
+//         if (!traveller.cancelled.byAdmin && !traveller.cancelled.byTraveller) {
+//           unpaidGuests.push({
+//             bookingId: booking._id.toString(),
+//             ...getBasicTravelerInfo(traveller),
+//           });
+//         }
+//       });
+//     });
+
+//     const rawRoomEntries = [];
+
+//     // Track allocated travellers to prevent duplicates
+//     const allocatedTravellerIds = new Set();
+
+//     const createOccupant = (t, mobile) => ({
+//       firstName: t.firstName,
+//       lastName: t.lastName,
+//       gender: t.gender,
+//       mobile,
+//       travellerId: t._id?.toString(),
+//       sharingType: t.sharingType,
+//       originalIndex: t.originalIndex, // Preserve original order
+//     });
+
+//     // === Step 1: Group by mobile number (Family/Friends - Case 6) ===
+//     const mobileGroups = new Map();
+
+//     paidBookings.forEach((booking) => {
+//       const active = booking.travellers.filter(
+//         (t) => !t.cancelled.byAdmin && !t.cancelled.byTraveller,
+//       );
+//       // Preserve original order in travellers array
+//       active.forEach((t, index) => {
+//         t.originalIndex = index; // Add original index for sorting later
+//       });
+//       const mobile = booking.contact.mobile;
+
+//       if (!mobileGroups.has(mobile)) mobileGroups.set(mobile, []);
+//       active.forEach((t) => {
+//         mobileGroups.get(mobile).push({
+//           traveller: t,
+//           bookingId: booking._id.toString(),
+//         });
+//       });
+//     });
+
+//     // === Step 2: Process each mobile group ===
+//     for (const [mobile, groupItems] of mobileGroups) {
+//       // Sort groupItems by original traveller index to maintain order
+//       groupItems.sort(
+//         (a, b) => a.traveller.originalIndex - b.traveller.originalIndex,
+//       );
+
+//       const travellers = groupItems.map((i) => i.traveller);
+//       const bookingIds = [...new Set(groupItems.map((i) => i.bookingId))];
+
+//       if (travellers.length === 0) continue;
+
+//       const sharingTypes = [...new Set(travellers.map((t) => t.sharingType))];
+//       const isUniformSharing =
+//         sharingTypes.length === 1 &&
+//         ["double", "triple"].includes(sharingTypes[0]);
+
+//       const isMarriedCouple =
+//         travellers.length === 2 &&
+//         travellers[0].gender !== travellers[1].gender &&
+//         travellers.every((t) => t.sharingType === "double");
+
+//       const rooms = [];
+
+//       // === Husband & Wife Rule ===
+//       if (isMarriedCouple) {
+//         rooms.push({
+//           sharingType: "double",
+//           occupants: travellers.map((t) => createOccupant(t, mobile)),
+//         });
+//       }
+//       // === Other cases: Mixed or Uniform sharing — allocate full groups in original order ===
+//       else {
+//         // Group by sharing type while maintaining order
+//         const bySharing = {};
+//         travellers.forEach((t) => {
+//           const key = t.sharingType;
+//           if (!bySharing[key]) bySharing[key] = [];
+//           bySharing[key].push(t);
+//         });
+
+//         Object.keys(bySharing).forEach((type) => {
+//           if (!["double", "triple"].includes(type)) return;
+
+//           const list = bySharing[type];
+//           const capacity = type === "double" ? 2 : 3;
+
+//           let i = 0;
+//           while (i < list.length) {
+//             const remaining = list.length - i;
+//             if (remaining >= capacity) {
+//               const group = list.slice(i, i + capacity);
+//               rooms.push({
+//                 sharingType: type,
+//                 occupants: group.map((t) => createOccupant(t, mobile)),
+//               });
+//               i += capacity;
+//             } else {
+//               i += remaining; // Leave remainder
+//             }
+//           }
+//         });
+
+//         // Add children in original order to first adult room
+//         const children = travellers.filter(
+//           (t) =>
+//             t.sharingType === "withBerth" || t.sharingType === "withoutBerth",
+//         );
+//         if (children.length > 0 && rooms.length > 0) {
+//           children.forEach((child) => {
+//             rooms[0].occupants.push(createOccupant(child, mobile));
+//           });
+//           rooms.forEach((room) => {
+//             const total = room.occupants.length;
+//             if (total > 3) room.sharingType = "quad";
+//             else if (total > 2) room.sharingType = "triple";
+//           });
+//         }
+//       }
+
+//       if (rooms.length > 0) {
+//         rawRoomEntries.push({
+//           bookingId: bookingIds[0],
+//           contactMobile: mobile,
+//           rooms: assignRoomNumbers(rooms),
+//         });
+
+//         rooms.forEach((room) => {
+//           room.occupants.forEach((occ) => {
+//             if (occ.travellerId) allocatedTravellerIds.add(occ.travellerId);
+//           });
+//         });
+//       }
+//     }
+
+//     // === Step 3: Global pooling for remainders (preserve order within same sharing/gender) ===
+//     const remainderPool = {};
+
+//     paidBookings.forEach((booking) => {
+//       booking.travellers.forEach((t, index) => {
+//         if (
+//           !t.cancelled.byAdmin &&
+//           !t.cancelled.byTraveller &&
+//           t._id &&
+//           !allocatedTravellerIds.has(t._id.toString()) &&
+//           ["double", "triple"].includes(t.sharingType)
+//         ) {
+//           t.originalIndex = index; // Preserve order
+//           const key = `${t.sharingType}-${t.gender}`;
+//           if (!remainderPool[key]) remainderPool[key] = [];
+//           remainderPool[key].push({
+//             traveller: t,
+//             mobile: booking.contact.mobile,
+//             bookingId: booking._id.toString(),
+//           });
+//         }
+//       });
+//     });
+
+//     Object.keys(remainderPool).forEach((key) => {
+//       const [sharingType, gender] = key.split("-");
+//       const capacity = sharingType === "double" ? 2 : 3;
+//       let list = remainderPool[key];
+//       if (list.length === 0) return;
+
+//       // Sort by original traveller index to keep order as much as possible
+//       list.sort(
+//         (a, b) => a.traveller.originalIndex - b.traveller.originalIndex,
+//       );
+
+//       const rooms = [];
+//       let i = 0;
+//       while (i < list.length) {
+//         const take = Math.min(capacity, list.length - i);
+//         const occupants = list
+//           .slice(i, i + take)
+//           .map((item) => createOccupant(item.traveller, item.mobile));
+//         rooms.push({
+//           sharingType:
+//             take === capacity ? sharingType : take === 2 ? "double" : "single",
+//           occupants,
+//         });
+//         i += take;
+//       }
+
+//       if (rooms.length > 0) {
+//         rawRoomEntries.push({
+//           bookingId: list[0].bookingId,
+//           contactMobile: list[0].mobile,
+//           rooms: assignRoomNumbers(rooms),
+//         });
+
+//         rooms.forEach((room) => {
+//           room.occupants.forEach((occ) => {
+//             if (occ.travellerId) allocatedTravellerIds.add(occ.travellerId);
+//           });
+//         });
+//       }
+//     });
+
+//     // === Step 4: Final single room reduction (same gender only) ===
+//     const singleRooms = [];
+//     rawRoomEntries.forEach((entry, entryIndex) => {
+//       entry.rooms = entry.rooms.filter((room) => {
+//         if (room.sharingType === "single") {
+//           singleRooms.push({
+//             entryIndex,
+//             room,
+//             contactMobile: entry.contactMobile,
+//             bookingId: entry.bookingId,
+//           });
+//           return false;
+//         }
+//         return true;
+//       });
+//     });
+
+//     const tripleSingles = { male: [], female: [] };
+//     const doubleSingles = { male: [], female: [] };
+
+//     singleRooms.forEach((single) => {
+//       const occupant = single.room.occupants[0];
+//       const gender = occupant.gender.toLowerCase();
+//       const original = occupant.sharingType;
+//       if (original === "triple") tripleSingles[gender].push(single);
+//       else if (original === "double") doubleSingles[gender].push(single);
+//     });
+
+//     ["male", "female"].forEach((gender) => {
+//       while (
+//         tripleSingles[gender].length > 0 &&
+//         doubleSingles[gender].length > 0
+//       ) {
+//         const tripleSingle = tripleSingles[gender].pop();
+//         const doubleSingle = doubleSingles[gender].pop();
+
+//         const newRoom = {
+//           sharingType: "double",
+//           occupants: [
+//             ...tripleSingle.room.occupants,
+//             ...doubleSingle.room.occupants,
+//           ],
+//         };
+
+//         rawRoomEntries[tripleSingle.entryIndex].rooms.push(newRoom);
+//       }
+
+//       tripleSingles[gender].forEach((r) =>
+//         rawRoomEntries[r.entryIndex].rooms.push(r.room),
+//       );
+//       doubleSingles[gender].forEach((r) =>
+//         rawRoomEntries[r.entryIndex].rooms.push(r.room),
+//       );
+//     });
+
+//     // === Final Grouping by Mobile ===
+//     const mobileMap = new Map();
+//     rawRoomEntries.forEach((entry) => {
+//       const mobile = entry.contactMobile || "0000000000";
+//       if (!mobileMap.has(mobile)) {
+//         mobileMap.set(mobile, {
+//           contactMobile: mobile,
+//           bookingIds: new Set(),
+//           rooms: [],
+//         });
+//       }
+//       const g = mobileMap.get(mobile);
+//       g.bookingIds.add(entry.bookingId);
+//       g.rooms.push(...entry.rooms);
+//     });
+
+//     const groupedByMobile = Array.from(mobileMap.values())
+//       .map((g) => ({
+//         contactMobile: g.contactMobile,
+//         bookingIds: Array.from(g.bookingIds),
+//         rooms: g.rooms.map((r, i) => ({ ...r, roomNumber: i + 1 })),
+//       }))
+//       .sort((a, b) => a.contactMobile.localeCompare(b.contactMobile));
+
+//     // === Check existing finalized allocation ===
+//     const existing = await tourRoomAllocationModel.findOne({
+//       tourId: objectTourId,
+//     });
+
+//     if (existing && existing.isFinalized) {
+//       const flat = existing.groupedByMobile.flatMap((g) =>
+//         g.rooms.map((r) => ({
+//           contactMobile: g.contactMobile,
+//           bookingIds: g.bookingIds,
+//           roomNumber: r.roomNumber,
+//           sharingType: r.sharingType,
+//           occupants: r.occupants.map((o) => ({
+//             firstName: o.firstName,
+//             lastName: o.lastName,
+//             gender: o.gender,
+//           })),
+//         })),
+//       );
+
+//       return res.json({
+//         tourId,
+//         unpaidGuests,
+//         roomAllocations: flat,
+//         groupedByMobile: existing.groupedByMobile,
+//         totalRooms: flat.length,
+//         totalGroups: existing.groupedByMobile.length,
+//         saved: false,
+//         message: "Finalized allocation displayed with updated unpaid guests.",
+//       });
+//     }
+
+//     // === Save new allocation ===
+//     await tourRoomAllocationModel.findOneAndUpdate(
+//       { tourId: objectTourId },
+//       {
+//         tourId: objectTourId,
+//         groupedByMobile,
+//         grouped: true,
+//         isFinalized: false,
+//       },
+//       { upsert: true, new: true },
+//     );
+
+//     const responseRooms = groupedByMobile.flatMap((g) =>
+//       g.rooms.map((r) => ({
+//         contactMobile: g.contactMobile,
+//         bookingIds: g.bookingIds,
+//         roomNumber: r.roomNumber,
+//         sharingType: r.sharingType,
+//         occupants: r.occupants.map((o) => ({
+//           firstName: o.firstName,
+//           lastName: o.lastName,
+//           gender: o.gender,
+//         })),
+//       })),
+//     );
+
+//     res.json({
+//       tourId,
+//       unpaidGuests,
+//       roomAllocations: responseRooms,
+//       groupedByMobile,
+//       totalRooms: responseRooms.length,
+//       totalGroups: groupedByMobile.length,
+//       saved: true,
+//       message:
+//         "Room allotment completed successfully (travellers in original order).",
+//     });
+//   } catch (error) {
+//     console.error("Room allotment error:", error);
+//     res.status(500).json({ error: error.message || "Internal server error" });
+//   }
+// };
+
 const allotRooms = async (req, res) => {
   try {
     const { tourId } = req.params;
@@ -2802,6 +3200,12 @@ const allotRooms = async (req, res) => {
 
     const objectTourId = new mongoose.Types.ObjectId(tourId);
 
+    // Get current allocation (including manual rooms)
+    const existing = await tourRoomAllocationModel.findOne({ tourId: objectTourId });
+
+    let globalRoomCounter = 1;   // Always start from 1 and re-number everything
+
+    // === FETCH BOOKINGS ===
     const bookings = await tourBookingModel
       .find({
         tourId: objectTourId,
@@ -2819,18 +3223,13 @@ const allotRooms = async (req, res) => {
       });
     }
 
-    // === Separate paid and unpaid ===
-    const paidBookings = bookings.filter(
-      (b) => b.payment.advance.paid && b.payment.advance.paymentVerified,
-    );
-
-    const unpaidBookings = bookings.filter(
-      (b) => !b.payment.advance.paid || !b.payment.advance.paymentVerified,
-    );
+    // Separate paid/unpaid
+    const paidBookings = bookings.filter(b => b.payment.advance.paid && b.payment.advance.paymentVerified);
+    const unpaidBookings = bookings.filter(b => !b.payment.advance.paid || !b.payment.advance.paymentVerified);
 
     const unpaidGuests = [];
-    unpaidBookings.forEach((booking) => {
-      booking.travellers.forEach((traveller) => {
+    unpaidBookings.forEach(booking => {
+      booking.travellers.forEach(traveller => {
         if (!traveller.cancelled.byAdmin && !traveller.cancelled.byTraveller) {
           unpaidGuests.push({
             bookingId: booking._id.toString(),
@@ -2841,8 +3240,6 @@ const allotRooms = async (req, res) => {
     });
 
     const rawRoomEntries = [];
-
-    // Track allocated travellers to prevent duplicates
     const allocatedTravellerIds = new Set();
 
     const createOccupant = (t, mobile) => ({
@@ -2852,65 +3249,44 @@ const allotRooms = async (req, res) => {
       mobile,
       travellerId: t._id?.toString(),
       sharingType: t.sharingType,
-      originalIndex: t.originalIndex, // Preserve original order
+      originalIndex: t.originalIndex,
     });
 
-    // === Step 1: Group by mobile number (Family/Friends - Case 6) ===
+    // Group by mobile
     const mobileGroups = new Map();
+    paidBookings.forEach(booking => {
+      const active = booking.travellers.filter(t => !t.cancelled.byAdmin && !t.cancelled.byTraveller);
+      active.forEach((t, index) => t.originalIndex = index);
 
-    paidBookings.forEach((booking) => {
-      const active = booking.travellers.filter(
-        (t) => !t.cancelled.byAdmin && !t.cancelled.byTraveller,
-      );
-      // Preserve original order in travellers array
-      active.forEach((t, index) => {
-        t.originalIndex = index; // Add original index for sorting later
-      });
       const mobile = booking.contact.mobile;
-
       if (!mobileGroups.has(mobile)) mobileGroups.set(mobile, []);
-      active.forEach((t) => {
-        mobileGroups.get(mobile).push({
-          traveller: t,
-          bookingId: booking._id.toString(),
-        });
+      active.forEach(t => {
+        mobileGroups.get(mobile).push({ traveller: t, bookingId: booking._id.toString() });
       });
     });
 
-    // === Step 2: Process each mobile group ===
+    // Process system rooms
     for (const [mobile, groupItems] of mobileGroups) {
-      // Sort groupItems by original traveller index to maintain order
-      groupItems.sort(
-        (a, b) => a.traveller.originalIndex - b.traveller.originalIndex,
-      );
-
-      const travellers = groupItems.map((i) => i.traveller);
-      const bookingIds = [...new Set(groupItems.map((i) => i.bookingId))];
+      groupItems.sort((a, b) => a.traveller.originalIndex - b.traveller.originalIndex);
+      const travellers = groupItems.map(i => i.traveller);
+      const bookingIds = [...new Set(groupItems.map(i => i.bookingId))];
 
       if (travellers.length === 0) continue;
 
-      const sharingTypes = [...new Set(travellers.map((t) => t.sharingType))];
-      const isUniformSharing =
-        sharingTypes.length === 1 &&
-        ["double", "triple"].includes(sharingTypes[0]);
+      const rooms = [];
 
+      // Husband & Wife Rule
       const isMarriedCouple =
         travellers.length === 2 &&
         travellers[0].gender !== travellers[1].gender &&
         travellers.every((t) => t.sharingType === "double");
 
-      const rooms = [];
-
-      // === Husband & Wife Rule ===
       if (isMarriedCouple) {
         rooms.push({
           sharingType: "double",
           occupants: travellers.map((t) => createOccupant(t, mobile)),
         });
-      }
-      // === Other cases: Mixed or Uniform sharing — allocate full groups in original order ===
-      else {
-        // Group by sharing type while maintaining order
+      } else {
         const bySharing = {};
         travellers.forEach((t) => {
           const key = t.sharingType;
@@ -2920,35 +3296,27 @@ const allotRooms = async (req, res) => {
 
         Object.keys(bySharing).forEach((type) => {
           if (!["double", "triple"].includes(type)) return;
-
           const list = bySharing[type];
           const capacity = type === "double" ? 2 : 3;
 
           let i = 0;
           while (i < list.length) {
-            const remaining = list.length - i;
-            if (remaining >= capacity) {
-              const group = list.slice(i, i + capacity);
-              rooms.push({
-                sharingType: type,
-                occupants: group.map((t) => createOccupant(t, mobile)),
-              });
-              i += capacity;
-            } else {
-              i += remaining; // Leave remainder
-            }
+            const take = Math.min(capacity, list.length - i);
+            const group = list.slice(i, i + take);
+            rooms.push({
+              sharingType: take === capacity ? type : take === 2 ? "double" : "single",
+              occupants: group.map((t) => createOccupant(t, mobile)),
+            });
+            i += take;
           }
         });
 
-        // Add children in original order to first adult room
+        // Add children
         const children = travellers.filter(
-          (t) =>
-            t.sharingType === "withBerth" || t.sharingType === "withoutBerth",
+          (t) => t.sharingType === "withBerth" || t.sharingType === "withoutBerth"
         );
         if (children.length > 0 && rooms.length > 0) {
-          children.forEach((child) => {
-            rooms[0].occupants.push(createOccupant(child, mobile));
-          });
+          children.forEach((child) => rooms[0].occupants.push(createOccupant(child, mobile)));
           rooms.forEach((room) => {
             const total = room.occupants.length;
             if (total > 3) room.sharingType = "quad";
@@ -2961,7 +3329,10 @@ const allotRooms = async (req, res) => {
         rawRoomEntries.push({
           bookingId: bookingIds[0],
           contactMobile: mobile,
-          rooms: assignRoomNumbers(rooms),
+          rooms: rooms.map((room) => ({
+            ...room,
+            roomNumber: globalRoomCounter++,   // ← Continuous Numbering
+          })),
         });
 
         rooms.forEach((room) => {
@@ -3092,7 +3463,19 @@ const allotRooms = async (req, res) => {
       );
     });
 
-    // === Final Grouping by Mobile ===
+    // === RE-NUMBER MANUAL ROOMS ALSO ===
+    const manualGuests = existing?.manuallyAddedRooms?.guests || [];
+    const manualLeaders = existing?.manuallyAddedRooms?.leaders || [];
+
+    manualGuests.forEach(room => {
+      room.roomNumber = globalRoomCounter++;
+    });
+
+    manualLeaders.forEach(room => {
+      room.roomNumber = globalRoomCounter++;
+    });
+
+    // Final Grouping
     const mobileMap = new Map();
     rawRoomEntries.forEach((entry) => {
       const mobile = entry.contactMobile || "0000000000";
@@ -3112,52 +3495,24 @@ const allotRooms = async (req, res) => {
       .map((g) => ({
         contactMobile: g.contactMobile,
         bookingIds: Array.from(g.bookingIds),
-        rooms: g.rooms.map((r, i) => ({ ...r, roomNumber: i + 1 })),
+        rooms: g.rooms,
       }))
       .sort((a, b) => a.contactMobile.localeCompare(b.contactMobile));
 
-    // === Check existing finalized allocation ===
-    const existing = await tourRoomAllocationModel.findOne({
-      tourId: objectTourId,
-    });
-
-    if (existing && existing.isFinalized) {
-      const flat = existing.groupedByMobile.flatMap((g) =>
-        g.rooms.map((r) => ({
-          contactMobile: g.contactMobile,
-          bookingIds: g.bookingIds,
-          roomNumber: r.roomNumber,
-          sharingType: r.sharingType,
-          occupants: r.occupants.map((o) => ({
-            firstName: o.firstName,
-            lastName: o.lastName,
-            gender: o.gender,
-          })),
-        })),
-      );
-
-      return res.json({
-        tourId,
-        unpaidGuests,
-        roomAllocations: flat,
-        groupedByMobile: existing.groupedByMobile,
-        totalRooms: flat.length,
-        totalGroups: existing.groupedByMobile.length,
-        saved: false,
-        message: "Finalized allocation displayed with updated unpaid guests.",
-      });
-    }
-
-    // === Save new allocation ===
+    // Save allocation
     await tourRoomAllocationModel.findOneAndUpdate(
       { tourId: objectTourId },
       {
         tourId: objectTourId,
         groupedByMobile,
+        manuallyAddedRooms: {
+          guests: manualGuests,
+          leaders: manualLeaders
+        },
         grouped: true,
         isFinalized: false,
       },
-      { upsert: true, new: true },
+      { upsert: true, new: true }
     );
 
     const responseRooms = groupedByMobile.flatMap((g) =>
@@ -3171,7 +3526,7 @@ const allotRooms = async (req, res) => {
           lastName: o.lastName,
           gender: o.gender,
         })),
-      })),
+      }))
     );
 
     res.json({
@@ -3182,17 +3537,14 @@ const allotRooms = async (req, res) => {
       totalRooms: responseRooms.length,
       totalGroups: groupedByMobile.length,
       saved: true,
-      message:
-        "Room allotment completed successfully (travellers in original order).",
+      message: "Room allotment completed with continuous room numbers.",
     });
+
   } catch (error) {
     console.error("Room allotment error:", error);
     res.status(500).json({ error: error.message || "Internal server error" });
   }
 };
-
-
-
 // === Helper Functions ===
 const getBasicTravelerInfo = (t) => ({
   title: t.title,
@@ -3210,8 +3562,244 @@ const getSharingTypeFromSize = (size) => {
   return "quad";
 };
 
+
+
 const assignRoomNumbers = (rooms) =>
   rooms.map((r, i) => ({ ...r, roomNumber: i + 1 }));
+
+
+// ==================== VIEW BOTH ROOMS (GUESTS FIRST) ====================
+const getManualRooms = async (req, res) => {
+  try {
+    const { tourId } = req.params;
+
+    if (!tourId || !mongoose.Types.ObjectId.isValid(tourId)) {
+      return res.status(400).json({ error: "Valid tourId is required" });
+    }
+
+    const objectTourId = new mongoose.Types.ObjectId(tourId);
+
+    const allocation = await tourRoomAllocationModel.findOne({
+      tourId: objectTourId,
+    }).lean();
+
+    if (!allocation) {
+      return res.json({
+        success: true,
+        leaders: [],
+        guests: [],
+        allManualRooms: [],
+        totalManualRooms: 0,
+        message: "No manual rooms found.",
+      });
+    }
+
+    const leaders = allocation.manuallyAddedRooms?.leaders || [];
+    const guests = allocation.manuallyAddedRooms?.guests || [];
+
+    // ✅ Guests First, Leaders Last
+    const allManualRooms = [...guests, ...leaders];
+
+    res.json({
+      success: true,
+      leaders,
+      guests,
+      allManualRooms,           // Guests first → Leaders last
+      totalManualRooms: allManualRooms.length,
+      totalLeaders: leaders.length,
+      totalGuests: guests.length,
+      message: "Manual rooms fetched successfully.",
+    });
+
+  } catch (error) {
+    console.error("Get Manual Rooms Error:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+};
+
+const addGuestRoom = async (req, res) => {
+  try {
+    const { tourId } = req.params;
+    const { sharingType, mobile, occupants } = req.body;
+
+    if (!tourId || !mongoose.Types.ObjectId.isValid(tourId)) {
+      return res.status(400).json({ error: "Valid tourId is required" });
+    }
+
+    if (!sharingType || !mobile || !occupants || !Array.isArray(occupants) || occupants.length === 0) {
+      return res.status(400).json({ error: "sharingType, mobile, occupants are required" });
+    }
+
+    const objectTourId = new mongoose.Types.ObjectId(tourId);
+
+    // Auto Calculate Next Room Number
+    const existing = await tourRoomAllocationModel.findOne({ tourId: objectTourId });
+
+    let nextRoomNumber = 1;
+    if (existing) {
+      const systemCount = existing.groupedByMobile?.reduce((acc, group) => acc + (group.rooms?.length || 0), 0) || 0;
+      const leaderCount = existing.manuallyAddedRooms?.leaders?.length || 0;
+      const guestCount = existing.manuallyAddedRooms?.guests?.length || 0;
+      nextRoomNumber = systemCount + leaderCount + guestCount + 1;
+    }
+
+    // Capacity Validation
+    const occupantCount = occupants.length;
+    const maxCapacity = sharingType === "single" ? 1 : sharingType === "double" ? 2 : sharingType === "triple" ? 3 : 4;
+
+    if (occupantCount > maxCapacity || occupantCount === 0) {
+      return res.status(400).json({ error: `Invalid occupant count for ${sharingType} room.` });
+    }
+
+    const newRoom = {
+      roomNumber: nextRoomNumber,
+      sharingType: sharingType.toLowerCase(),
+      mobile: mobile.trim(),
+      occupants,
+      type: "guest",
+      addedAt: new Date()
+    };
+
+    const updatedDoc = await tourRoomAllocationModel.findOneAndUpdate(
+      { tourId: objectTourId },
+      {
+        $push: { "manuallyAddedRooms.guests": newRoom },
+        $setOnInsert: {
+          tourId: objectTourId,
+          groupedByMobile: [],
+          bookings: [],
+          grouped: true,
+          isFinalized: false
+        }
+      },
+      { upsert: true, new: true, runValidators: true }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: `Guest Room added successfully as Room ${nextRoomNumber}`,
+      room: newRoom,
+      totalGuestRooms: updatedDoc.manuallyAddedRooms?.guests?.length || 0
+    });
+
+  } catch (error) {
+    console.error("Add Guest Room Error:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+};
+
+// ==================== ADD LEADER ROOM ====================
+const addLeaderRoom = async (req, res) => {
+  try {
+    const { tourId } = req.params;
+    const { sharingType, mobile, occupants } = req.body;
+
+    if (!tourId || !mongoose.Types.ObjectId.isValid(tourId)) {
+      return res.status(400).json({ error: "Valid tourId is required" });
+    }
+
+    if (!sharingType || !mobile || !occupants || !Array.isArray(occupants) || occupants.length === 0) {
+      return res.status(400).json({ error: "sharingType, mobile, occupants are required" });
+    }
+
+    const objectTourId = new mongoose.Types.ObjectId(tourId);
+
+    // Auto Calculate Next Room Number
+    const existing = await tourRoomAllocationModel.findOne({ tourId: objectTourId });
+
+    let nextRoomNumber = 1;
+    if (existing) {
+      const systemCount = existing.groupedByMobile?.reduce((acc, group) => acc + (group.rooms?.length || 0), 0) || 0;
+      const leaderCount = existing.manuallyAddedRooms?.leaders?.length || 0;
+      const guestCount = existing.manuallyAddedRooms?.guests?.length || 0;
+      nextRoomNumber = systemCount + leaderCount + guestCount + 1;
+    }
+
+    const occupantCount = occupants.length;
+    const maxCapacity = sharingType === "single" ? 1 : sharingType === "double" ? 2 : sharingType === "triple" ? 3 : 4;
+
+    if (occupantCount > maxCapacity || occupantCount === 0) {
+      return res.status(400).json({ error: `Invalid occupant count for ${sharingType} room.` });
+    }
+
+    const newRoom = {
+      roomNumber: nextRoomNumber,
+      sharingType: sharingType.toLowerCase(),
+      mobile: mobile.trim(),
+      occupants,
+      type: "leader",
+      addedAt: new Date()
+    };
+
+    const updatedDoc = await tourRoomAllocationModel.findOneAndUpdate(
+      { tourId: objectTourId },
+      {
+        $push: { "manuallyAddedRooms.leaders": newRoom },
+        $setOnInsert: {
+          tourId: objectTourId,
+          groupedByMobile: [],
+          bookings: [],
+          grouped: true,
+          isFinalized: false
+        }
+      },
+      { upsert: true, new: true, runValidators: true }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: `Leader Room added successfully as Room ${nextRoomNumber}`,
+      room: newRoom,
+      totalLeaderRooms: updatedDoc.manuallyAddedRooms?.leaders?.length || 0
+    });
+
+  } catch (error) {
+    console.error("Add Leader Room Error:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+};
+
+
+const deleteLeaderRoom = async (req, res) => {
+  try {
+    const { tourId, roomId } = req.params;
+
+    if (!tourId || !mongoose.Types.ObjectId.isValid(tourId)) {
+      return res.status(400).json({ error: "Valid tourId is required" });
+    }
+
+    if (!roomId) {
+      return res.status(400).json({ error: "roomId is required" });
+    }
+
+    const objectTourId = new mongoose.Types.ObjectId(tourId);
+
+    const updatedDoc = await tourRoomAllocationModel.findOneAndUpdate(
+      { tourId: objectTourId },
+      {
+        $pull: {
+          "manuallyAddedRooms.leaders": { _id: new mongoose.Types.ObjectId(roomId) }
+        }
+      },
+      { new: true }
+    );
+
+    if (!updatedDoc) {
+      return res.status(404).json({ error: "Tour allocation not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Leader Room deleted successfully`,
+      totalLeaderRooms: updatedDoc.manuallyAddedRooms?.leaders?.length || 0
+    });
+
+  } catch (error) {
+    console.error("Delete Leader Room Error:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+};
+
 
 const getToursByYear = async (req, res) => {
   try {
@@ -4981,6 +5569,14 @@ export {
   updateBookingBalance,
   getManagedBookingsHistory,
   allotRooms,
+  // ==================== NEW ONES TO ADD ====================
+  getManualRooms,           // View Both Guest + Leader Rooms
+  addGuestRoom,             // Add Guest Room
+  addLeaderRoom,            // Add Leader Room
+  deleteLeaderRoom,
+  // =========================================================
+
+
   getToursByYear,
   getAvailableTourYears,
   getAllBookings,

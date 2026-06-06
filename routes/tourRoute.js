@@ -50,20 +50,25 @@ import {
   deleteBalanceRemark,
   updateAdvanceRemark,
   deleteAdvanceRemark,
+  getManualRooms,
+  addGuestRoom,
+  addLeaderRoom,
+  deleteLeaderRoom,
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
 import { paymentQrUpload } from "../middlewares/multer.js"; // New import for payment QR uploads
 import cancelBookingController from "../controllers/cancelController.js";
+import { get } from "mongoose";
 
 const tourRouter = express.Router();
 
 // Balance Remarks
-tourRouter.put("/balance/:tnr/remark", authTour,updateBalanceRemark);           // Edit remark
-tourRouter.delete("/balance/:tnr/remark",authTour, deleteBalanceRemark);        // Delete remark
+tourRouter.put("/balance/:tnr/remark", authTour, updateBalanceRemark);           // Edit remark
+tourRouter.delete("/balance/:tnr/remark", authTour, deleteBalanceRemark);        // Delete remark
 // Advance Remarks
 tourRouter.put("/advance/:tnr/remark", authTour, updateAdvanceRemark);           // Edit remark
-tourRouter.delete("/advance/:tnr/remark", authTour, deleteAdvanceRemark);        // Delete remark
+tourRouter.delete("/advance/:tnr/remark", authTour, deleteAdvanceRemark); // Delete remark
 
 tourRouter.get("/list", tourList);
 tourRouter.post("/login", loginTour);
@@ -97,6 +102,18 @@ tourRouter.post(
 );
 tourRouter.get("/managed-bookings/history", getManagedBookingsHistory);
 tourRouter.get("/allot-rooms/:tourId", allotRooms);
+// ==================== NEW MANUAL ROOM ROUTES ====================
+
+// View Both Guest & Leader Rooms
+tourRouter.get("/:tourId/manual-rooms", getManualRooms);
+
+// Add Guest Room
+tourRouter.post("/:tourId/add-guest-room", authTour, addGuestRoom);
+
+// Add Leader Room
+tourRouter.post("/:tourId/add-leader-room", authTour, addLeaderRoom);
+tourRouter.delete("/:tourId/leader-room/:roomId", deleteLeaderRoom);
+
 tourRouter.get("/year/:year", getToursByYear);
 tourRouter.get("/year", getAvailableTourYears);
 tourRouter.get("/bookings-all", getAllBookings);
