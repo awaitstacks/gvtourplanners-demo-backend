@@ -11,6 +11,8 @@ import crypto from "crypto";
 import tourBookingModel from "../models/tourBookingmodel.js";
 import TourVehicle from "../models/tourVehicleModel.js";
 import PaymentMethod from "../models/paymentModel.js";
+import enquiryModel from "../models/enquiryModel.js";
+
 
 // API for Google Sign-In / Sign-Up
 const googleSignIn = async (req, res) => {
@@ -247,9 +249,8 @@ const addToTrolly = async (req, res) => {
       if (isNaN(age) || age < 1 || (age >= 1 && age <= 5)) {
         return res.status(400).json({
           success: false,
-          message: `Booking failed: Invalid age for traveller ${
-            trav.firstName || "Unknown"
-          }. Age must be a number greater than 5.`,
+          message: `Booking failed: Invalid age for traveller ${trav.firstName || "Unknown"
+            }. Age must be a number greater than 5.`,
         });
       }
 
@@ -260,9 +261,8 @@ const addToTrolly = async (req, res) => {
       ) {
         return res.status(400).json({
           success: false,
-          message: `Invalid package type for traveller: ${
-            trav.firstName || "Unknown"
-          }. Must be 'main' or 'variant'.`,
+          message: `Invalid package type for traveller: ${trav.firstName || "Unknown"
+            }. Must be 'main' or 'variant'.`,
         });
       }
 
@@ -272,9 +272,8 @@ const addToTrolly = async (req, res) => {
       ) {
         return res.status(400).json({
           success: false,
-          message: `Variant package index is required for traveller: ${
-            trav.firstName || "Unknown"
-          }.`,
+          message: `Variant package index is required for traveller: ${trav.firstName || "Unknown"
+            }.`,
         });
       }
 
@@ -284,9 +283,8 @@ const addToTrolly = async (req, res) => {
         if (!tour.variantPackage[trav.variantPackageIndex]) {
           return res.status(400).json({
             success: false,
-            message: `Variant package at index ${
-              trav.variantPackageIndex
-            } does not exist for traveller: ${trav.firstName || "Unknown"}.`,
+            message: `Variant package at index ${trav.variantPackageIndex
+              } does not exist for traveller: ${trav.firstName || "Unknown"}.`,
           });
         }
         selectedPackage = tour.variantPackage[trav.variantPackageIndex];
@@ -296,9 +294,8 @@ const addToTrolly = async (req, res) => {
       if (!trav.boardingPoint) {
         return res.status(400).json({
           success: false,
-          message: `Boarding point is required for traveller: ${
-            trav.firstName || "Unknown"
-          }`,
+          message: `Boarding point is required for traveller: ${trav.firstName || "Unknown"
+            }`,
         });
       }
 
@@ -309,9 +306,8 @@ const addToTrolly = async (req, res) => {
       if (!validBoarding) {
         return res.status(400).json({
           success: false,
-          message: `Invalid boarding point for traveller: ${
-            trav.firstName || "Unknown"
-          }`,
+          message: `Invalid boarding point for traveller: ${trav.firstName || "Unknown"
+            }`,
         });
       }
 
@@ -324,9 +320,8 @@ const addToTrolly = async (req, res) => {
       if (!trav.deboardingPoint) {
         return res.status(400).json({
           success: false,
-          message: `Deboarding point is required for traveller: ${
-            trav.firstName || "Unknown"
-          }`,
+          message: `Deboarding point is required for traveller: ${trav.firstName || "Unknown"
+            }`,
         });
       }
 
@@ -337,9 +332,8 @@ const addToTrolly = async (req, res) => {
       if (!validDeboarding) {
         return res.status(400).json({
           success: false,
-          message: `Invalid deboarding point for traveller: ${
-            trav.firstName || "Unknown"
-          }`,
+          message: `Invalid deboarding point for traveller: ${trav.firstName || "Unknown"
+            }`,
         });
       }
 
@@ -358,9 +352,8 @@ const addToTrolly = async (req, res) => {
         if (!validAddon) {
           return res.status(400).json({
             success: false,
-            message: `Invalid add-on for traveller: ${
-              trav.firstName || "Unknown"
-            }`,
+            message: `Invalid add-on for traveller: ${trav.firstName || "Unknown"
+              }`,
           });
         }
         addonPrice = Number(validAddon.amount) || 0;
@@ -387,9 +380,8 @@ const addToTrolly = async (req, res) => {
           default:
             return res.status(400).json({
               success: false,
-              message: `Invalid sharing type for adult traveller: ${
-                trav.firstName || "Unknown"
-              }`,
+              message: `Invalid sharing type for adult traveller: ${trav.firstName || "Unknown"
+                }`,
             });
         }
       } else if (age >= 6 && age <= 10) {
@@ -407,9 +399,8 @@ const addToTrolly = async (req, res) => {
           default:
             return res.status(400).json({
               success: false,
-              message: `Invalid sharing type for child traveller: ${
-                trav.firstName || "Unknown"
-              }`,
+              message: `Invalid sharing type for child traveller: ${trav.firstName || "Unknown"
+                }`,
             });
         }
       }
@@ -418,9 +409,8 @@ const addToTrolly = async (req, res) => {
       if (isNaN(travellerAdvance) || isNaN(travellerBalance)) {
         return res.status(400).json({
           success: false,
-          message: `Booking failed: Could not calculate prices for traveller ${
-            trav.firstName || "Unknown"
-          }. Please check tour prices.`,
+          message: `Booking failed: Could not calculate prices for traveller ${trav.firstName || "Unknown"
+            }. Please check tour prices.`,
         });
       }
 
@@ -1120,6 +1110,75 @@ const getPaymentMethods = async (req, res) => {
     });
   }
 };
+
+// const createEnquiry = async (req, res) => {
+//   try {
+//     const {
+//       fullName, mobileNumber, email, city,
+//       destination, tourType, preferredTravelDate, numberOfDays,
+//       adults, children, infants, specialRequests, source,
+//     } = req.body;
+
+//     if (!fullName || !mobileNumber || !email || !destination || !tourType || !preferredTravelDate || !numberOfDays) {
+//       return res.status(400).json({ success: false, message: "Please fill all required fields including email" });
+//     }
+
+//     const enquiry = await enquiryModel.create({
+//       fullName, mobileNumber, email, city,
+//       destination, tourType, preferredTravelDate, numberOfDays,
+//       adults: adults || 1, children: children || 0, infants: infants || 0,
+//       specialRequests, source,
+//       raisedBy: "user", // ← ADD
+//     });
+
+//     return res.status(201).json({
+//       success: true,
+//       message: "Enquiry submitted successfully",
+//       data: enquiry,
+//       fitCode: enquiry.fitCode,
+//     });
+//   } catch (error) {
+//     return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
+//   }
+// };
+
+const createEnquiry = async (req, res) => {
+  try {
+    const {
+      fullName, mobileNumber, email, city,
+      destination, tourType, preferredTravelDate, numberOfDays,
+      adults, children, infants, specialRequests, source,
+    } = req.body;
+
+    if (!fullName || !mobileNumber || !email || !destination || !tourType || !preferredTravelDate || !numberOfDays) {
+      return res.status(400).json({ success: false, message: "Please fill all required fields including email" });
+    }
+
+    const enquiry = await enquiryModel.create({
+      fullName, mobileNumber, email, city,
+      destination, tourType, preferredTravelDate, numberOfDays,
+      adults: adults || 1,
+      children: children || 0,
+      infants: infants || 0,
+      specialRequests,
+      source,
+      raisedBy: "user",
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Enquiry submitted successfully",
+      data: enquiry,
+      fitCode: enquiry.fitCode,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
+  }
+};
+
+
+
+
 export {
   registerUser,
   loginUser,
@@ -1135,4 +1194,5 @@ export {
   getBookingDetailsByTNR,
   confirmSeatSelection,
   getPaymentMethods,
+  createEnquiry,
 };

@@ -14,6 +14,7 @@ import {
   getBookingDetailsByTNR,
   confirmSeatSelection,
   getPaymentMethods,
+  createEnquiry,
 } from "../controllers/userController.js";
 import authUser from "../middlewares/authUser.js";
 import { upload } from "../middlewares/multer.js";
@@ -43,5 +44,7 @@ userRouter.get("/seat-allocation/tnr/:tnr", getSeatAllocationByTNR);
 userRouter.get("/tnr/:tnr", getBookingDetailsByTNR);
 userRouter.post("/:tnr/confirm-seats", confirmSeatSelection);
 userRouter.get("/payment-methods", authUser, getPaymentMethods);
+userRouter.post("/create-enquiry",createEnquiry);
+
 
 export default userRouter;

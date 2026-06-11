@@ -54,6 +54,13 @@ import {
   addGuestRoom,
   addLeaderRoom,
   deleteLeaderRoom,
+  getAllEnquiries,
+  getEnquiryById,
+  updateEnquiry,
+  // deleteEnquiry,
+  acceptEnquiry,
+  rejectEnquiry,
+  adminCreateEnquiry,
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
@@ -196,6 +203,13 @@ tourRouter.put('/:tourId/update-payment-methods/:id',
 );
 
 tourRouter.delete('/:tourId/delete-payment-methods/:id', authTour, deleteTourPaymentMethod);
+tourRouter.post('/enquiry/create', authTour, adminCreateEnquiry);
+tourRouter.get('/enquiry/all', authTour, getAllEnquiries);
+tourRouter.get('/enquiry/:id', authTour, getEnquiryById);
+tourRouter.put('/enquiry/:id/update', authTour, updateEnquiry);
+// tourRouter.delete('/enquiry/:id/delete', authTour, deleteEnquiry);
+tourRouter.put('/enquiry/:id/accept', authTour, acceptEnquiry);
+tourRouter.put('/enquiry/:id/reject', authTour, rejectEnquiry);
 
 
 
