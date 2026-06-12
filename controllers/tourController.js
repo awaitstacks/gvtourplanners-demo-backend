@@ -5612,20 +5612,22 @@ const adminCreateEnquiry = async (req, res) => {
       adults, children, infants, specialRequests, source,
     } = req.body;
 
-    if (!fullName || !mobileNumber || !email || !destination || !tourType || !preferredTravelDate || !numberOfDays || !numberOfNights) {
+    if (!fullName || !mobileNumber || !destination || !tourType) {
       return res.status(400).json({ success: false, message: "Please fill all required fields" });
     }
 
     const enquiry = await enquiryModel.create({
       fullName, mobileNumber, email, city,
-      destination, tourType, preferredTravelDate, numberOfDays,
-      numberOfNights,
+      destination, tourType,
+      preferredTravelDate: preferredTravelDate || null,
+      numberOfDays: numberOfDays ? Number(numberOfDays) : null,
+      numberOfNights: numberOfNights ? Number(numberOfNights) : null,
       adults: adults || 1,
       children: children || 0,
       infants: infants || 0,
       specialRequests,
-      source: source || "admin",
-      raisedBy: "admin",
+      source: source || null,
+       raisedBy: "admin",
     });
 
     return res.status(201).json({
@@ -5648,22 +5650,22 @@ const adminCreateEnquiry = async (req, res) => {
 //   }
 // };
 const getAllEnquiries = async (req, res) => {
-    try {
-        // Auto-reject expired pending enquiries first
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+  try {
+    // Auto-reject expired pending enquiries first
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-        await enquiryModel.updateMany(
-            { status: "pending", preferredTravelDate: { $lt: today } },
-            { $set: { status: "rejected" } }
-        );
+    await enquiryModel.updateMany(
+      { status: "pending", preferredTravelDate: { $lt: today } },
+      { $set: { status: "rejected" } }
+    );
 
-        const enquiries = await enquiryModel.find().sort({ createdAt: -1 });
-        return res.status(200).json({ success: true, data: enquiries });
+    const enquiries = await enquiryModel.find().sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, data: enquiries });
 
-    } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
-    }
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
 };
 // GET BY ID — GET /api/tour/enquiry/:id
 const getEnquiryById = async (req, res) => {
@@ -5682,7 +5684,7 @@ const updateEnquiry = async (req, res) => {
     const enquiry = await enquiryModel.findByIdAndUpdate(
       req.params.id,
       { $set: req.body },
-      { new: true, runValidators: true }
+      { new: true, runValidators: false }
     );
     if (!enquiry) return res.status(404).json({ success: false, message: "Enquiry not found" });
     return res.status(200).json({ success: true, message: "Enquiry updated successfully", data: enquiry });
@@ -5705,55 +5707,55 @@ const updateEnquiry = async (req, res) => {
 
 
 const acceptEnquiry = async (req, res) => {
-    try {
-        const { salesValue, fitStates, pickupDate, pickupTime, pickupPlace } = req.body;
+  try {
+    const { salesValue, fitStates, pickupDate, pickupTime, pickupPlace } = req.body;
 
-        // Validation
-        if (!fitStates || !Array.isArray(fitStates) || fitStates.length === 0) {
-            return res.status(400).json({ success: false, message: "At least one FIT state is required" });
-        }
-        if (!salesValue || isNaN(Number(salesValue)) || Number(salesValue) <= 0) {
-            return res.status(400).json({ success: false, message: "Valid sales value is required" });
-        }
-        if (!pickupDate) {
-            return res.status(400).json({ success: false, message: "Pickup date is required" });
-        }
-        if (!pickupTime) {
-            return res.status(400).json({ success: false, message: "Pickup time is required" });
-        }
-        if (!pickupPlace || !pickupPlace.trim()) {
-            return res.status(400).json({ success: false, message: "Pickup place is required" });
-        }
-
-        const enquiry = await enquiryModel.findById(req.params.id);
-        if (!enquiry) {
-            return res.status(404).json({ success: false, message: "Enquiry not found" });
-        }
-        if (enquiry.status === "accepted") {
-            return res.status(400).json({ success: false, message: "Enquiry already accepted" });
-        }
-
-        enquiry.status = "accepted";
-        enquiry.salesValue = Number(salesValue);
-        enquiry.fitStates = fitStates;
-        enquiry.pickupDate = new Date(pickupDate);
-        enquiry.pickupTime = pickupTime.trim();
-        enquiry.pickupPlace = pickupPlace.trim();
-        enquiry.acceptedAt = new Date();
-
-        const updated = await enquiry.save();
-
-        return res.status(200).json({
-            success: true,
-            message: "Enquiry accepted successfully",
-            fitCode: updated.fitCode,
-            data: updated
-        });
-
-    } catch (error) {
-        console.error("Accept Enquiry Error:", error);
-        return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
+    // Validation
+    if (!fitStates || !Array.isArray(fitStates) || fitStates.length === 0) {
+      return res.status(400).json({ success: false, message: "At least one FIT state is required" });
     }
+    if (!salesValue || isNaN(Number(salesValue)) || Number(salesValue) <= 0) {
+      return res.status(400).json({ success: false, message: "Valid sales value is required" });
+    }
+    if (!pickupDate) {
+      return res.status(400).json({ success: false, message: "Pickup date is required" });
+    }
+    if (!pickupTime) {
+      return res.status(400).json({ success: false, message: "Pickup time is required" });
+    }
+    if (!pickupPlace || !pickupPlace.trim()) {
+      return res.status(400).json({ success: false, message: "Pickup place is required" });
+    }
+
+    const enquiry = await enquiryModel.findById(req.params.id);
+    if (!enquiry) {
+      return res.status(404).json({ success: false, message: "Enquiry not found" });
+    }
+    if (enquiry.status === "accepted") {
+      return res.status(400).json({ success: false, message: "Enquiry already accepted" });
+    }
+
+    enquiry.status = "accepted";
+    enquiry.salesValue = Number(salesValue);
+    enquiry.fitStates = fitStates;
+    enquiry.pickupDate = new Date(pickupDate);
+    enquiry.pickupTime = pickupTime.trim();
+    enquiry.pickupPlace = pickupPlace.trim();
+    enquiry.acceptedAt = new Date();
+
+    const updated = await enquiry.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Enquiry accepted successfully",
+      fitCode: updated.fitCode,
+      data: updated
+    });
+
+  } catch (error) {
+    console.error("Accept Enquiry Error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
+  }
 };
 
 // REJECT — PUT /api/tour/enquiry/:id/reject

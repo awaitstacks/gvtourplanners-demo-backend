@@ -1157,18 +1157,21 @@ const createEnquiry = async (req, res) => {
       adults, children, infants, specialRequests, source,
     } = req.body;
 
-    if (!fullName || !mobileNumber || !email || !destination || !tourType || !preferredTravelDate || !numberOfDays||!numberOfNights) {
+    if (!fullName || !mobileNumber || !destination || !tourType) {
       return res.status(400).json({ success: false, message: "Please fill all required fields including email" });
     }
 
     const enquiry = await enquiryModel.create({
       fullName, mobileNumber, email, city,
-      destination, tourType, preferredTravelDate, numberOfDays,
-      numberOfNights, // ← ADD (auto calculate if not sent)
+      destination, tourType,
+      preferredTravelDate: preferredTravelDate || null,
+      numberOfDays: numberOfDays ? Number(numberOfDays) : null,
+      numberOfNights: numberOfNights ? Number(numberOfNights) : null,
       adults: adults || 1,
       children: children || 0,
       infants: infants || 0,
-      specialRequests, source,
+      specialRequests,
+      source: source || null,
       raisedBy: "user",
     });
 
