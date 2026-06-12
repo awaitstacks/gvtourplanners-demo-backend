@@ -1,118 +1,4 @@
 
-// import mongoose from "mongoose";
-
-// const enquirySchema = new mongoose.Schema(
-//   {
-//     fullName: {
-//       type: String,
-//       required: true,
-//       trim: true,
-//     },
-
-//     mobileNumber: {
-//       type: String,
-//       required: true,
-//       trim: true,
-//     },
-
-//     email: {
-//       type: String,
-//       trim: true,
-//       lowercase: true,
-//     },
-
-//     city: {
-//       type: String,
-//       trim: true,
-//     },
-
-//     destination: {
-//       type: String,
-//       required: true,
-//       trim: true,
-//     },
-
-//     tourType: {
-//       type: String,
-//       required: true,
-//       enum: [
-//         "Group tour(fixed departure)",
-//         "Customized/Private tour",
-//         "Friends",
-//         "Family",
-//         "Corporate/Team Outing",
-//         "Honeymoon",
-//         "pilgrimage tour",
-//         "Others",
-//       ],
-//     },
-
-//     preferredTravelDate: {
-//       type: Date,
-//       required: true,
-//     },
-
-//     numberOfDays: {
-//       type: Number,
-//       required: true,
-//       min: 1,
-//     },
-
-//     adults: {
-//       type: Number,
-//       default: 1,
-//       min: 0,
-//     },
-
-//     children: {
-//       type: Number,
-//       default: 0,
-//       min: 0,
-//     },
-
-//     infants: {
-//       type: Number,
-//       default: 0,
-//       min: 0,
-//     },
-
-//     specialRequests: {
-//       type: String,
-//       trim: true,
-//     },
-
-//     source: {
-//       type: String,
-//       enum: [
-//         "Google",
-//         "Facebook",
-//         "Instagram",
-//         "YouTube",
-//         "Friends & Family",
-//         "Whatsapp/Referral",
-//         "Others",
-//       ],
-//       default: "Website",
-//     },
-//     status: {
-//       type: String,
-//       enum: ["pending", "accepted", "rejected"],
-//       default: "pending",
-//     },
-
-//   },
-//   {
-//     timestamps: true,
-//   }
-// );
-
-// const enquiryModel =
-//   mongoose.models.enquiry ||
-//   mongoose.model("enquiry", enquirySchema);
-
-// export default enquiryModel;
-
-
 import mongoose from "mongoose";
 
 const enquirySchema = new mongoose.Schema(
@@ -138,6 +24,7 @@ const enquirySchema = new mongoose.Schema(
     },
     preferredTravelDate: { type: Date, required: true },
     numberOfDays: { type: Number, required: true, min: 1 },
+    numberOfNights: { type: Number, required: true, min: 0 },
     adults: { type: Number, default: 1, min: 0 },
     children: { type: Number, default: 0, min: 0 },
     infants: { type: Number, default: 0, min: 0 },

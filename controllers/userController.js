@@ -1111,6 +1111,8 @@ const getPaymentMethods = async (req, res) => {
   }
 };
 
+
+
 // const createEnquiry = async (req, res) => {
 //   try {
 //     const {
@@ -1126,9 +1128,12 @@ const getPaymentMethods = async (req, res) => {
 //     const enquiry = await enquiryModel.create({
 //       fullName, mobileNumber, email, city,
 //       destination, tourType, preferredTravelDate, numberOfDays,
-//       adults: adults || 1, children: children || 0, infants: infants || 0,
-//       specialRequests, source,
-//       raisedBy: "user", // ← ADD
+//       adults: adults || 1,
+//       children: children || 0,
+//       infants: infants || 0,
+//       specialRequests,
+//       source,
+//       raisedBy: "user",
 //     });
 
 //     return res.status(201).json({
@@ -1142,26 +1147,28 @@ const getPaymentMethods = async (req, res) => {
 //   }
 // };
 
+
 const createEnquiry = async (req, res) => {
   try {
     const {
       fullName, mobileNumber, email, city,
       destination, tourType, preferredTravelDate, numberOfDays,
+      numberOfNights, // ← ADD
       adults, children, infants, specialRequests, source,
     } = req.body;
 
-    if (!fullName || !mobileNumber || !email || !destination || !tourType || !preferredTravelDate || !numberOfDays) {
+    if (!fullName || !mobileNumber || !email || !destination || !tourType || !preferredTravelDate || !numberOfDays||!numberOfNights) {
       return res.status(400).json({ success: false, message: "Please fill all required fields including email" });
     }
 
     const enquiry = await enquiryModel.create({
       fullName, mobileNumber, email, city,
       destination, tourType, preferredTravelDate, numberOfDays,
+      numberOfNights, // ← ADD (auto calculate if not sent)
       adults: adults || 1,
       children: children || 0,
       infants: infants || 0,
-      specialRequests,
-      source,
+      specialRequests, source,
       raisedBy: "user",
     });
 
@@ -1175,7 +1182,6 @@ const createEnquiry = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 };
-
 
 
 

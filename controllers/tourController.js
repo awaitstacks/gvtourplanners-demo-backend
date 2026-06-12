@@ -5600,140 +5600,7 @@ const getTourVehicleSeatOverview = async (req, res) => {
   }
 };
 
-// const adminCreateEnquiry = async (req, res) => {
-//   try {
-//     const {
-//       fullName, mobileNumber, email, city,
-//       destination, tourType, preferredTravelDate, numberOfDays,
-//       adults, children, infants, specialRequests, source,
-//     } = req.body;
 
-//     if (!fullName || !mobileNumber || !email || !destination || !tourType || !preferredTravelDate || !numberOfDays) {
-//       return res.status(400).json({ success: false, message: "Please fill all required fields" });
-//     }
-
-//     const enquiry = await enquiryModel.create({
-//       fullName, mobileNumber, email, city,
-//       destination, tourType, preferredTravelDate, numberOfDays,
-//       adults: adults || 1,
-//       children: children || 0,
-//       infants: infants || 0,
-//       specialRequests,
-//       source: source || "admin",
-//       raisedBy: "admin",
-//     });
-
-//     return res.status(201).json({
-//       success: true,
-//       message: `Enquiry created! FIT Code: ${enquiry.fitCode}`,
-//       data: enquiry,
-//       fitCode: enquiry.fitCode,
-//     });
-//   } catch (error) {
-//     return res.status(500).json({ success: false, message: error.message });
-//   }
-// };
-
-
-// // READ ALL - GET /api/enquiry/all
-// // GET ALL - GET /api/tour/enquiry/all
-// const getAllEnquiries = async (req, res) => {
-//   try {
-//     const enquiries = await enquiryModel.find().sort({ createdAt: -1 });
-//     return res.status(200).json({ success: true, count: enquiries.length, data: enquiries });
-//   } catch (error) {
-//     return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
-//   }
-// };
-
-// // GET ONE - GET /api/tour/enquiry/:id
-// const getEnquiryById = async (req, res) => {
-//   try {
-//     const enquiry = await enquiryModel.findById(req.params.id);
-//     if (!enquiry) return res.status(404).json({ success: false, message: "Enquiry not found" });
-//     return res.status(200).json({ success: true, data: enquiry });
-//   } catch (error) {
-//     return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
-//   }
-// };
-
-// // UPDATE - PUT /api/tour/enquiry/:id/update
-// const updateEnquiry = async (req, res) => {
-//   try {
-//     const enquiry = await enquiryModel.findByIdAndUpdate(
-//       req.params.id, { $set: req.body }, { new: true, runValidators: true }
-//     );
-//     if (!enquiry) return res.status(404).json({ success: false, message: "Enquiry not found" });
-//     return res.status(200).json({ success: true, message: "Enquiry updated successfully", data: enquiry });
-//   } catch (error) {
-//     return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
-//   }
-// };
-
-// // DELETE - DELETE /api/tour/enquiry/:id/delete
-// const deleteEnquiry = async (req, res) => {
-//   try {
-//     const enquiry = await enquiryModel.findByIdAndDelete(req.params.id);
-//     if (!enquiry) return res.status(404).json({ success: false, message: "Enquiry not found" });
-//     return res.status(200).json({ success: true, message: "Enquiry deleted successfully" });
-//   } catch (error) {
-//     return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
-//   }
-// };
-
-// // ACCEPT - PUT /api/tour/enquiry/:id/accept
-// const acceptEnquiry = async (req, res) => {
-//   try {
-//     const { assignedTo, salesValue, fitStates } = req.body;
-
-
-//     if (!fitStates || fitStates.length === 0) {
-//       return res.status(400).json({ success: false, message: "At least one FIT state is required" });
-//     }
-//     // ── NEW ──
-//     if (!salesValue || Number(salesValue) <= 0) {
-//       return res.status(400).json({ success: false, message: "Sales value is required" });
-//     }
-
-//     const enquiry = await enquiryModel.findById(req.params.id);
-//     if (!enquiry) {
-//       return res.status(404).json({ success: false, message: "Enquiry not found" });
-//     }
-//     if (enquiry.status === "accepted") {
-//       return res.status(400).json({ success: false, message: "Enquiry already accepted" });
-//     }
-
-//     enquiry.status = "accepted";
-//     enquiry.salesValue = Number(salesValue);
-//     enquiry.fitStates = fitStates;
-//     enquiry.acceptedAt = new Date();
-
-//     await enquiry.save()
-
-//     return res.status(200).json({
-//       success: true,
-//       message: `Enquiry accepted! FIT Code: ${enquiry.fitCode}`,
-//       data: enquiry,
-//     });
-//   } catch (error) {
-//     return res.status(500).json({ success: false, message: error.message });
-//   }
-// };
-
-// // REJECT - PUT /api/tour/enquiry/:id/reject
-// const rejectEnquiry = async (req, res) => {
-//   try {
-//     const enquiry = await enquiryModel.findByIdAndUpdate(
-//       req.params.id,
-//       { status: "rejected" },
-//       { new: true }
-//     );
-//     if (!enquiry) return res.status(404).json({ success: false, message: "Enquiry not found" });
-//     return res.status(200).json({ success: true, message: "Enquiry rejected", data: enquiry });
-//   } catch (error) {
-//     return res.status(500).json({ success: false, message: error.message });
-//   }
-// };
 
 
 const adminCreateEnquiry = async (req, res) => {
@@ -5741,16 +5608,18 @@ const adminCreateEnquiry = async (req, res) => {
     const {
       fullName, mobileNumber, email, city,
       destination, tourType, preferredTravelDate, numberOfDays,
+      numberOfNights, // ← ADD
       adults, children, infants, specialRequests, source,
     } = req.body;
 
-    if (!fullName || !mobileNumber || !email || !destination || !tourType || !preferredTravelDate || !numberOfDays) {
+    if (!fullName || !mobileNumber || !email || !destination || !tourType || !preferredTravelDate || !numberOfDays || !numberOfNights) {
       return res.status(400).json({ success: false, message: "Please fill all required fields" });
     }
 
     const enquiry = await enquiryModel.create({
       fullName, mobileNumber, email, city,
       destination, tourType, preferredTravelDate, numberOfDays,
+      numberOfNights,
       adults: adults || 1,
       children: children || 0,
       infants: infants || 0,
@@ -5769,7 +5638,6 @@ const adminCreateEnquiry = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
 // GET ALL — GET /api/tour/enquiry/all (user + admin both, sorted by createdAt desc)
 const getAllEnquiries = async (req, res) => {
   try {
@@ -5818,38 +5686,93 @@ const updateEnquiry = async (req, res) => {
 // };
 
 // ACCEPT — PUT /api/tour/enquiry/:id/accept
+// const acceptEnquiry = async (req, res) => {
+//   try {
+//     const { salesValue, fitStates } = req.body;
+
+//     if (!fitStates || fitStates.length === 0) {
+//       return res.status(400).json({ success: false, message: "At least one FIT state is required" });
+//     }
+//     if (!salesValue || Number(salesValue) <= 0) {
+//       return res.status(400).json({ success: false, message: "Valid sales value is required" });
+//     }
+
+//     const enquiry = await enquiryModel.findById(req.params.id);
+//     if (!enquiry) return res.status(404).json({ success: false, message: "Enquiry not found" });
+//     if (enquiry.status === "accepted") {
+//       return res.status(400).json({ success: false, message: "Enquiry already accepted" });
+//     }
+
+//     enquiry.status = "accepted";
+//     enquiry.salesValue = Number(salesValue);
+//     enquiry.fitStates = fitStates;
+//     enquiry.acceptedAt = new Date();
+
+//     await enquiry.save(); // pre-save hook trigger ஆகாது — fitCode already set on create
+
+//     return res.status(200).json({
+//       success: true,
+//       message: `Enquiry accepted! FIT Code: ${enquiry.fitCode}`,
+//       data: enquiry,
+//     });
+//   } catch (error) {
+//     console.error("ACCEPT ENQUIRY ERROR:", error);  // ← இது சேருங்க
+//     return res.status(500).json({ success: false, message: error.message });
+//   }
+
+// };
 const acceptEnquiry = async (req, res) => {
-  try {
-    const { salesValue, fitStates } = req.body;
+    try {
+        const { salesValue, fitStates } = req.body;
 
-    if (!fitStates || fitStates.length === 0) {
-      return res.status(400).json({ success: false, message: "At least one FIT state is required" });
+        // Validation
+        if (!fitStates || !Array.isArray(fitStates) || fitStates.length === 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "At least one FIT state is required" 
+            });
+        }
+
+        if (!salesValue || isNaN(Number(salesValue)) || Number(salesValue) <= 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Valid sales value is required" 
+            });
+        }
+
+        const enquiry = await enquiryModel.findById(req.params.id);
+        
+        if (!enquiry) {
+            return res.status(404).json({ success: false, message: "Enquiry not found" });
+        }
+
+        if (enquiry.status === "accepted") {
+            return res.status(400).json({ success: false, message: "Enquiry already accepted" });
+        }
+
+        // Update the enquiry
+        enquiry.status = "accepted";
+        enquiry.salesValue = Number(salesValue);
+        enquiry.fitStates = fitStates;
+        enquiry.acceptedAt = new Date();
+
+        const updated = await enquiry.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Enquiry accepted successfully",
+            fitCode: updated.fitCode,
+            data: updated
+        });
+
+    } catch (error) {
+        console.error("Accept Enquiry Error:", error);
+        return res.status(500).json({ 
+            success: false, 
+            message: "Internal server error",
+            error: error.message 
+        });
     }
-    if (!salesValue || Number(salesValue) <= 0) {
-      return res.status(400).json({ success: false, message: "Valid sales value is required" });
-    }
-
-    const enquiry = await enquiryModel.findById(req.params.id);
-    if (!enquiry) return res.status(404).json({ success: false, message: "Enquiry not found" });
-    if (enquiry.status === "accepted") {
-      return res.status(400).json({ success: false, message: "Enquiry already accepted" });
-    }
-
-    enquiry.status = "accepted";
-    enquiry.salesValue = Number(salesValue);
-    enquiry.fitStates = fitStates;
-    enquiry.acceptedAt = new Date();
-
-    await enquiry.save(); // pre-save hook trigger ஆகாது — fitCode already set on create
-
-    return res.status(200).json({
-      success: true,
-      message: `Enquiry accepted! FIT Code: ${enquiry.fitCode}`,
-      data: enquiry,
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
 };
 
 // REJECT — PUT /api/tour/enquiry/:id/reject
