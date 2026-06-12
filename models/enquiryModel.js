@@ -59,6 +59,10 @@ const enquirySchema = new mongoose.Schema(
       default: [],
     },
     salesValue: { type: Number, min: 0, default: null },
+    pickupDate: { type: Date, default: null },
+    pickupTime: { type: String, trim: true, default: null },
+    pickupPlace: { type: String, trim: true, default: null },
+
     raisedBy: {
       type: String,
       enum: ["user", "admin"],
