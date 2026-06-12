@@ -5627,7 +5627,7 @@ const adminCreateEnquiry = async (req, res) => {
       infants: infants || 0,
       specialRequests,
       source: source || null,
-       raisedBy: "admin",
+      raisedBy: "admin",
     });
 
     return res.status(201).json({
@@ -5743,8 +5743,7 @@ const acceptEnquiry = async (req, res) => {
     enquiry.pickupPlace = pickupPlace.trim();
     enquiry.acceptedAt = new Date();
 
-    const updated = await enquiry.save();
-
+    const updated = await enquiry.save({ validateBeforeSave: false });
     return res.status(200).json({
       success: true,
       message: "Enquiry accepted successfully",
