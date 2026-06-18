@@ -76,7 +76,13 @@ const balanceMethodSchema = new mongoose.Schema({
 
   phone: {
     type: String,
-    match: [/^[0-9]{10}$/, "Phone must be exactly 10 digits"],
+    validate: {
+      validator: function (v) {
+        if (!v || v.trim() === "") return true; // allow empty/undefined
+        return /^[0-9]{10}$/.test(v);
+      },
+      message: "Phone must be exactly 10 digits",
+    },
   },
 
   qrImage: {

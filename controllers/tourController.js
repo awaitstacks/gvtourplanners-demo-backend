@@ -102,6 +102,7 @@ const bookingsTour = async (req, res) => {
   }
 };
 
+
 const bookingComplete = async (req, res) => {
   try {
     const { tnr, tourId } = req.body;
@@ -252,7 +253,9 @@ const bookingComplete = async (req, res) => {
       message: `An unexpected error occurred: ${error.message}`,
     });
   }
+
 };
+
 
 const TaskBookingComplete = async (req, res) => {
   try {
@@ -5162,11 +5165,130 @@ const getTourPaymentMethods = async (req, res) => {
 // POST /api/tour/:tourId/payment-methods
 // Create Payment Method for Specific Tour
 // ──────────────────────────────────────────────────────────────────────────────
+// const createTourPaymentMethod = async (req, res) => {
+//   try {
+//     const { tourId } = req.params;
+
+//     console.log("Received tourId:", tourId); // ← Debug க்காக
+
+//     if (!tourId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Tour ID is required in URL",
+//       });
+//     }
+
+//     // Check if tour exists
+//     const tour = await tourModel.findById(tourId);
+//     if (!tour) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Tour not found",
+//       });
+//     }
+
+//     const type = req.body?.type?.trim().toLowerCase();
+
+//     if (!type || !["bank", "upi"].includes(type)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Type must be either 'bank' or 'upi'",
+//       });
+//     }
+
+//     let paymentData = {
+//       tourId,
+//       type,
+//       isActive: true
+//     };
+
+//     if (type === "bank") {
+//       const {
+//         bankName, branchName, accountNumber, ifsc, swift = "",
+//         beneficiary, accountType
+//       } = req.body;
+
+//       if (!bankName?.trim() || !branchName?.trim() || !accountNumber?.trim() ||
+//         !ifsc?.trim() || !beneficiary?.trim() || !accountType?.trim()) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "All bank fields are required",
+//         });
+//       }
+
+//       paymentData = {
+//         ...paymentData,
+//         bankName: bankName.trim(),
+//         branchName: branchName.trim(),
+//         accountNumber: accountNumber.trim(),
+//         ifsc: ifsc.trim().toUpperCase(),
+//         swift: swift.trim() || undefined,
+//         beneficiary: beneficiary.trim(),
+//         accountType: accountType.trim(),
+//       };
+//     }
+//     else if (type === "upi") {
+//       const { upiId, phone } = req.body;
+
+//       if (!upiId?.trim() || !phone?.trim()) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "UPI ID and Phone number are required for UPI",
+//         });
+//       }
+
+//       if (!/^[0-9]{10}$/.test(phone.trim())) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Phone number must be exactly 10 digits",
+//         });
+//       }
+
+//       paymentData = {
+//         ...paymentData,
+//         upiId: upiId.trim(),
+//         phone: phone.trim(),
+//       };
+
+//       if (req.file) {
+//         try {
+//           const result = await cloudinary.v2.uploader.upload(req.file.path, {
+//             folder: `tour-payments/${tourId}/qr`,
+//             resource_type: "image",
+//           });
+//           paymentData.qrImage = result.secure_url;
+//         } catch (uploadErr) {
+//           console.error("Cloudinary upload failed:", uploadErr);
+//           return res.status(500).json({
+//             success: false,
+//             message: "Failed to upload QR code image",
+//           });
+//         }
+//       }
+//     }
+
+//     const newMethod = await BalanceMethod.create(paymentData);
+
+//     return res.status(201).json({
+//       success: true,
+//       message: `${type.toUpperCase()} payment method created successfully for this tour`,
+//       paymentMethod: newMethod,
+//     });
+//   } catch (error) {
+//     console.error("createTourPaymentMethod error:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to create tour payment method",
+//       error: error.message,
+//     });
+//   }
+// };
+
 const createTourPaymentMethod = async (req, res) => {
   try {
     const { tourId } = req.params;
 
-    console.log("Received tourId:", tourId); // ← Debug க்காக
+    console.log("Received tourId:", tourId);
 
     if (!tourId) {
       return res.status(400).json({
@@ -5175,7 +5297,6 @@ const createTourPaymentMethod = async (req, res) => {
       });
     }
 
-    // Check if tour exists
     const tour = await tourModel.findById(tourId);
     if (!tour) {
       return res.status(404).json({
@@ -5196,17 +5317,19 @@ const createTourPaymentMethod = async (req, res) => {
     let paymentData = {
       tourId,
       type,
-      isActive: true
+      isActive: true,
     };
 
     if (type === "bank") {
       const {
         bankName, branchName, accountNumber, ifsc, swift = "",
-        beneficiary, accountType
+        beneficiary, accountType,
       } = req.body;
 
-      if (!bankName?.trim() || !branchName?.trim() || !accountNumber?.trim() ||
-        !ifsc?.trim() || !beneficiary?.trim() || !accountType?.trim()) {
+      if (
+        !bankName?.trim() || !branchName?.trim() || !accountNumber?.trim() ||
+        !ifsc?.trim() || !beneficiary?.trim() || !accountType?.trim()
+      ) {
         return res.status(400).json({
           success: false,
           message: "All bank fields are required",
@@ -5223,18 +5346,20 @@ const createTourPaymentMethod = async (req, res) => {
         beneficiary: beneficiary.trim(),
         accountType: accountType.trim(),
       };
-    }
-    else if (type === "upi") {
+
+    } else if (type === "upi") {
       const { upiId, phone } = req.body;
 
-      if (!upiId?.trim() || !phone?.trim()) {
+      // Only upiId required, phone is optional
+      if (!upiId?.trim()) {
         return res.status(400).json({
           success: false,
-          message: "UPI ID and Phone number are required for UPI",
+          message: "UPI ID is required",
         });
       }
 
-      if (!/^[0-9]{10}$/.test(phone.trim())) {
+      // Validate phone format only if provided
+      if (phone?.trim() && !/^[0-9]{10}$/.test(phone.trim())) {
         return res.status(400).json({
           success: false,
           message: "Phone number must be exactly 10 digits",
@@ -5244,7 +5369,7 @@ const createTourPaymentMethod = async (req, res) => {
       paymentData = {
         ...paymentData,
         upiId: upiId.trim(),
-        phone: phone.trim(),
+        ...(phone?.trim() && { phone: phone.trim() }),
       };
 
       if (req.file) {
@@ -5271,6 +5396,7 @@ const createTourPaymentMethod = async (req, res) => {
       message: `${type.toUpperCase()} payment method created successfully for this tour`,
       paymentMethod: newMethod,
     });
+
   } catch (error) {
     console.error("createTourPaymentMethod error:", error);
     return res.status(500).json({

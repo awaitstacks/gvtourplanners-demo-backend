@@ -34,6 +34,14 @@ import {
   getAllPaymentMethods,
   adminFetchTourVehicleSeatOverview,
   deleteBookingByTNR,
+  // ─── Analytics ───────────────────────────────────────────────
+  getAnalyticsSummary,
+  getAnalyticsYearWise,
+  getAnalyticsMonthWise,
+  getAnalyticsCancellation,
+  getAnalyticsTourList,
+  searchAnalyticsTours,
+
 } from "../controllers/tourAdminController.js";
 import authAdmin from "../middlewares/authAdmin.js";
 import { tourUpload } from "../middlewares/multer.js"; // ✅ Correct import (pre-configured fields)
@@ -89,6 +97,39 @@ touradminRouter.get("/pending-approvals", authAdmin, getPendingApprovals);
 touradminRouter.post("/terms/add-points", addTermsPoints);
 touradminRouter.delete("/terms/points/:pointId", deleteTermsPoint);
 touradminRouter.get("/terms/current", getCurrentTerms);
+
+touradminRouter.get("/analytics-summary", authAdmin, getAnalyticsSummary);
+touradminRouter.get("/analytics-year-wise", authAdmin, getAnalyticsYearWise);
+touradminRouter.get("/analytics-month-wise", authAdmin, getAnalyticsMonthWise);
+touradminRouter.get("/analytics-cancellation", authAdmin, getAnalyticsCancellation);
+touradminRouter.get("/analytics-tour-list", authAdmin, getAnalyticsTourList);
+touradminRouter.get("/analytics-search", authAdmin, searchAnalyticsTours);
+// TEMP DEBUG — remove after testing
+touradminRouter.get("/analytics-cancel-debug", async (req, res) => {
+  try {
+    const data = await tourBookingModel.aggregate([
+      { $unwind: "$travellers" },
+      {
+        $match: {
+          "travellers.cancelled.byAdmin": true,
+          "travellers.cancelled.byTraveller": true,
+        }
+      },
+      {
+        $project: {
+          tnr: 1,
+          cancelledAt: "$travellers.cancelled.cancelledAt",
+          gvPool: "$gvCancellationPool",
+          irctcPool: "$irctcCancellationPool",
+        }
+      }
+    ]);
+    res.json({ count: data.length, data });
+  } catch (e) {
+    res.json({ error: e.message });
+  }
+});
+
 
 touradminRouter.post("/:tourId/vehicles", authAdmin, adminCreateTourVehicle);
 
