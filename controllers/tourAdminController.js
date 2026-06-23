@@ -3227,13 +3227,1101 @@ const adminFetchTourVehicleSeatOverview = async (req, res) => {
   }
 };
 
+// // ════════════════════════════════════════════════════════════════
+// //  ANALYTICS — replace existing analytics section in touradminController.js
+// // ════════════════════════════════════════════════════════════════
+
+// // ─── Helper: tour departure date filter ──────────────────────
+// function buildTourDateQuery({ year, month }) {
+//   const q = {};
+//   if (year && month) {
+//     const y = parseInt(year), m = parseInt(month);
+//     q.lastBookingDate = { $gte: new Date(y, m - 1, 1), $lt: new Date(y, m, 1) };
+//   } else if (year) {
+//     const y = parseInt(year);
+//     q.lastBookingDate = { $gte: new Date(`${y}-01-01`), $lt: new Date(`${y + 1}-01-01`) };
+//   } else if (month) {
+//     q.$expr = { $eq: [{ $month: "$lastBookingDate" }, parseInt(month)] };
+//   }
+//   return q;
+// }
+
+
+// // ════════════════════════════════════════════════════════════════
+// //  Updated helper functions for tour list table
+// //  Replace in touradminController.js
+// // ════════════════════════════════════════════════════════════════
+
+// // ─── Helper: booking stats per tourId ────────────────────────
+// async function getBookingStatsByTourIds(tourIds) {
+//   if (!tourIds.length) return [];
+//   return tourBookingModel.aggregate([
+//     { $match: { tourId: { $in: tourIds } } },
+//     {
+//       $group: {
+//         _id: "$tourId",
+//         totalTNR: { $sum: 1 },
+
+//         // ── Travellers (active) ──
+//         // Includes: never-cancelled + cancel-request-pending + unverified travellers
+//         // Excludes: travellers where byAdmin=true (covers both "cancelled" and "rejected")
+//         totalTravellers: {
+//           $sum: {
+//             $size: {
+//               $filter: {
+//                 input: "$travellers", as: "t",
+//                 cond: { $ne: ["$$t.cancelled.byAdmin", true] }
+//               }
+//             }
+//           }
+//         },
+
+//         // ── Cancelled Travellers (new column) = cancelled + rejected combined ──
+//         // cancelled: byAdmin=true AND byTraveller=true
+//         // rejected:  byAdmin=true AND byTraveller≠true
+//         // combined condition: byAdmin=true (covers both cases)
+//         cancelledTravellers: {
+//           $sum: {
+//             $size: {
+//               $filter: {
+//                 input: "$travellers", as: "t",
+//                 cond: { $eq: ["$$t.cancelled.byAdmin", true] }
+//               }
+//             }
+//           }
+//         },
+
+//         // ── Gender: same group as totalTravellers (byAdmin ≠ true) ──
+//         totalFemale: {
+//           $sum: {
+//             $size: {
+//               $filter: {
+//                 input: "$travellers", as: "t",
+//                 cond: {
+//                   $and: [
+//                     { $eq: ["$$t.gender", "Female"] },
+//                     { $gt: ["$$t.age", 10] },
+//                     { $ne: ["$$t.cancelled.byAdmin", true] }
+//                   ]
+//                 }
+//               }
+//             }
+//           }
+//         },
+//         totalMale: {
+//           $sum: {
+//             $size: {
+//               $filter: {
+//                 input: "$travellers", as: "t",
+//                 cond: {
+//                   $and: [
+//                     { $eq: ["$$t.gender", "Male"] },
+//                     { $gt: ["$$t.age", 10] },
+//                     { $ne: ["$$t.cancelled.byAdmin", true] }
+//                   ]
+//                 }
+//               }
+//             }
+//           }
+//         },
+//         totalChild: {
+//           $sum: {
+//             $size: {
+//               $filter: {
+//                 input: "$travellers", as: "t",
+//                 cond: {
+//                   $and: [
+//                     { $in: ["$$t.sharingType", ["withBerth", "withoutBerth"]] },
+//                     { $ne: ["$$t.cancelled.byAdmin", true] }
+//                   ]
+//                 }
+//               }
+//             }
+//           }
+//         },
+
+//         // ── Card-expand breakdown (for mobile TourCard) ──
+//         unverifiedTravellers: {
+//           $sum: {
+//             $cond: [
+//               { $ne: ["$payment.advance.paid", true] },
+//               {
+//                 $size: {
+//                   $filter: {
+//                     input: "$travellers", as: "t",
+//                     cond: { $ne: ["$$t.cancelled.byAdmin", true] }
+//                   }
+//                 }
+//               },
+//               0
+//             ]
+//           }
+//         },
+//         activeTravellers: {
+//           $sum: {
+//             $cond: [
+//               { $eq: ["$payment.advance.paid", true] },
+//               {
+//                 $size: {
+//                   $filter: {
+//                     input: "$travellers", as: "t",
+//                     cond: {
+//                       $and: [
+//                         { $ne: ["$$t.cancelled.byAdmin", true] },
+//                         { $ne: ["$$t.cancelled.byTraveller", true] },
+//                       ]
+//                     }
+//                   }
+//                 }
+//               },
+//               0
+//             ]
+//           }
+//         },
+//         cancellationRequestTravellers: {
+//           $sum: {
+//             $size: {
+//               $filter: {
+//                 input: "$travellers", as: "t",
+//                 cond: {
+//                   $and: [
+//                     { $eq: ["$$t.cancelled.byTraveller", true] },
+//                     { $ne: ["$$t.cancelled.byAdmin", true] },
+//                   ]
+//                 }
+//               }
+//             }
+//           }
+//         },
+//         fullyCancelledTravellers: {
+//           $sum: {
+//             $size: {
+//               $filter: {
+//                 input: "$travellers", as: "t",
+//                 cond: {
+//                   $and: [
+//                     { $eq: ["$$t.cancelled.byAdmin", true] },
+//                     { $eq: ["$$t.cancelled.byTraveller", true] },
+//                   ]
+//                 }
+//               }
+//             }
+//           }
+//         },
+//         rejectedTravellers: {
+//           $sum: {
+//             $size: {
+//               $filter: {
+//                 input: "$travellers", as: "t",
+//                 cond: {
+//                   $and: [
+//                     { $eq: ["$$t.cancelled.byAdmin", true] },
+//                     { $ne: ["$$t.cancelled.byTraveller", true] },
+//                   ]
+//                 }
+//               }
+//             }
+//           }
+//         },
+
+//         // ── Tour status ──
+//         isCompleted: { $max: { $cond: ["$isTripCompleted", 1, 0] } },
+
+//         // ── Cancellation pools ──
+//         gvPool: { $sum: { $ifNull: ["$gvCancellationPool", 0] } },
+//         irctcPool: { $sum: { $ifNull: ["$irctcCancellationPool", 0] } },
+//       }
+//     }
+//   ]);
+// }
+
+// // ─── Helper: merge tour + booking data ───────────────────────
+// function mergeTourBooking(allTours, bookingData) {
+//   const bookingMap = {};
+//   bookingData.forEach(b => { bookingMap[b._id?.toString()] = b; });
+
+//   return allTours.map(t => {
+//     const id = t._id.toString();
+//     const b = bookingMap[id] || {};
+//     return {
+//       _id: id,
+//       tourName: t.title || "—",
+//       tourType: t.batch || "—",
+//       available: t.available ?? null,
+//       departureDate: t.lastBookingDate || null,
+//       totalTNR: b.totalTNR || 0,
+//       totalTravellers: b.totalTravellers || 0,
+//       cancelledTravellers: b.cancelledTravellers || 0,        // NEW column
+//       totalFemale: b.totalFemale || 0,
+//       totalMale: b.totalMale || 0,
+//       totalChild: b.totalChild || 0,
+//       // breakdown — used by mobile card expand view
+//       unverifiedTravellers: b.unverifiedTravellers || 0,
+//       activeTravellers: b.activeTravellers || 0,
+//       cancellationRequestTravellers: b.cancellationRequestTravellers || 0,
+//       fullyCancelledTravellers: b.fullyCancelledTravellers || 0,
+//       rejectedTravellers: b.rejectedTravellers || 0,
+//       isCompleted: b.isCompleted ?? 0,
+//       gvPool: b.gvPool || 0,
+//       irctcPool: b.irctcPool || 0,
+//     };
+//   });
+// }
+
+// // ════════════════════════════════════════════════════════════════
+// //  Sanity check (run manually in DB to verify):
+// //  totalTravellers + cancelledTravellers === sum of all travellers in booking
+// //  (because totalTravellers uses byAdmin≠true, cancelledTravellers uses byAdmin=true
+// //   — these are complementary sets with zero overlap and zero gap)
+// // ════════════════════════════════════════════════════════════════
+
+
+// function emptyStats() {
+//   return {
+//     totalTours: 0,
+//     totalBookings: 0, unverifiedBookings: 0, activeBookings: 0,
+//     completedBookings: 0, fullyCancelledBookings: 0, rejectedBookings: 0,
+//     totalTravellers: 0, activeTravellers: 0, cancelledTravellers: 0,
+//     cancellationRequestTravellers: 0, rejectedTravellers: 0,
+//     totalFemale: 0, totalMale: 0, totalChild: 0,
+//     totalGVPool: 0, totalIRCTCPool: 0, totalCancelAmount: 0,
+//   };
+// }
+
+
+
+
+// const getAnalyticsSummary = async (req, res) => {
+//   try {
+//     const { year, month, tourId } = req.query;
+//     const tourIds = tourId ? tourId.split(",") : [];
+
+//     const tourQuery = buildTourDateQuery({ year, month });
+//     if (tourIds.length) {
+//       tourQuery._id = { $in: tourIds.map(id => new mongoose.Types.ObjectId(id)) };
+//     }
+
+//     let matchTourIds = [];
+//     if (year || month || tourIds.length) {
+//       const tours = await tourModel.find(tourQuery, { _id: 1 }).lean();
+//       matchTourIds = tours.map(t => t._id);
+//       if (!matchTourIds.length) {
+//         return res.status(200).json({ success: true, data: emptyStats() });
+//       }
+//     }
+
+//     const bookingMatch = matchTourIds.length ? { tourId: { $in: matchTourIds } } : {};
+
+//     // ── Helper expressions ──────────────────────────────────────
+
+//     const allCancelledExpr = {
+//       $and: [
+//         { $gt: [{ $size: "$travellers" }, 0] },
+//         {
+//           $eq: [
+//             { $size: "$travellers" },
+//             {
+//               $size: {
+//                 $filter: {
+//                   input: "$travellers", as: "t",
+//                   cond: {
+//                     $and: [
+//                       { $eq: ["$$t.cancelled.byAdmin", true] },
+//                       { $eq: ["$$t.cancelled.byTraveller", true] },
+//                     ]
+//                   }
+//                 }
+//               }
+//             }
+//           ]
+//         }
+//       ]
+//     };
+
+//     const allRejectedExpr = {
+//       $and: [
+//         { $gt: [{ $size: "$travellers" }, 0] },
+//         {
+//           $eq: [
+//             { $size: "$travellers" },
+//             {
+//               $size: {
+//                 $filter: {
+//                   input: "$travellers", as: "t",
+//                   cond: {
+//                     $and: [
+//                       { $eq: ["$$t.cancelled.byAdmin", true] },
+//                       { $ne: ["$$t.cancelled.byTraveller", true] },
+//                     ]
+//                   }
+//                 }
+//               }
+//             }
+//           ]
+//         }
+//       ]
+//     };
+
+//     const [stats] = await tourBookingModel.aggregate([
+//       { $match: bookingMatch },
+//       {
+//         $group: {
+//           _id: null,
+
+//           totalBookings: { $sum: 1 },
+
+//           unverifiedBookings: {
+//             $sum: {
+//               $cond: [{
+//                 $and: [
+//                   { $ne: ["$payment.advance.paid", true] },
+//                   { $not: allCancelledExpr },
+//                   { $not: allRejectedExpr },
+//                 ]
+//               }, 1, 0]
+//             }
+//           },
+
+//           activeBookings: {
+//             $sum: {
+//               $cond: [{
+//                 $and: [
+//                   { $eq: ["$payment.advance.paid", true] },
+//                   { $ne: ["$payment.balance.paid", true] },
+//                   { $not: allCancelledExpr },
+//                   { $not: allRejectedExpr },
+//                 ]
+//               }, 1, 0]
+//             }
+//           },
+
+//           completedBookings: {
+//             $sum: {
+//               $cond: [{
+//                 $and: [
+//                   { $eq: ["$payment.advance.paid", true] },
+//                   { $eq: ["$payment.balance.paid", true] },
+//                   { $not: allCancelledExpr },
+//                   { $not: allRejectedExpr },
+//                 ]
+//               }, 1, 0]
+//             }
+//           },
+
+//           fullyCancelledBookings: {
+//             $sum: { $cond: [allCancelledExpr, 1, 0] }
+//           },
+
+//           rejectedBookings: {
+//             $sum: { $cond: [allRejectedExpr, 1, 0] }
+//           },
+
+//           // ── Travellers ──────────────────────────────────────────
+
+//           totalTravellers: { $sum: { $size: "$travellers" } },
+
+//           // NEW: Unverified travellers = travellers in bookings where advance NOT paid
+//           unverifiedTravellers: {
+//             $sum: {
+//               $cond: [
+//                 { $ne: ["$payment.advance.paid", true] },
+//                 { $size: "$travellers" },
+//                 0
+//               ]
+//             }
+//           },
+
+//           // Active traveller: advance PAID + byAdmin=false AND byTraveller=false
+//           activeTravellers: {
+//             $sum: {
+//               $cond: [
+//                 { $eq: ["$payment.advance.paid", true] },
+//                 {
+//                   $size: {
+//                     $filter: {
+//                       input: "$travellers", as: "t",
+//                       cond: {
+//                         $and: [
+//                           { $ne: ["$$t.cancelled.byAdmin", true] },
+//                           { $ne: ["$$t.cancelled.byTraveller", true] },
+//                         ]
+//                       }
+//                     }
+//                   }
+//                 },
+//                 0
+//               ]
+//             }
+//           },
+
+//           // Cancelled traveller: byAdmin=true AND byTraveller=true
+//           cancelledTravellers: {
+//             $sum: {
+//               $size: {
+//                 $filter: {
+//                   input: "$travellers", as: "t",
+//                   cond: {
+//                     $and: [
+//                       { $eq: ["$$t.cancelled.byAdmin", true] },
+//                       { $eq: ["$$t.cancelled.byTraveller", true] },
+//                     ]
+//                   }
+//                 }
+//               }
+//             }
+//           },
+
+//           // Cancel request: byTraveller=true AND byAdmin=false
+//           cancellationRequestTravellers: {
+//             $sum: {
+//               $size: {
+//                 $filter: {
+//                   input: "$travellers", as: "t",
+//                   cond: {
+//                     $and: [
+//                       { $eq: ["$$t.cancelled.byTraveller", true] },
+//                       { $ne: ["$$t.cancelled.byAdmin", true] },
+//                     ]
+//                   }
+//                 }
+//               }
+//             }
+//           },
+
+//           // Rejected traveller: byAdmin=true AND byTraveller=false
+//           rejectedTravellers: {
+//             $sum: {
+//               $size: {
+//                 $filter: {
+//                   input: "$travellers", as: "t",
+//                   cond: {
+//                     $and: [
+//                       { $eq: ["$$t.cancelled.byAdmin", true] },
+//                       { $ne: ["$$t.cancelled.byTraveller", true] },
+//                     ]
+//                   }
+//                 }
+//               }
+//             }
+//           },
+
+//           // ── Gender (advance paid + NOT cancelled) ────────────────
+
+//           totalFemale: {
+//             $sum: {
+//               $cond: [
+//                 { $eq: ["$payment.advance.paid", true] },
+//                 {
+//                   $size: {
+//                     $filter: {
+//                       input: "$travellers", as: "t",
+//                       cond: {
+//                         $and: [
+//                           { $eq: ["$$t.gender", "Female"] },
+//                           { $gt: ["$$t.age", 10] },
+//                           { $ne: ["$$t.cancelled.byAdmin", true] },
+//                           { $ne: ["$$t.cancelled.byTraveller", true] },
+//                         ]
+//                       }
+//                     }
+//                   }
+//                 },
+//                 0
+//               ]
+//             }
+//           },
+
+//           totalMale: {
+//             $sum: {
+//               $cond: [
+//                 { $eq: ["$payment.advance.paid", true] },
+//                 {
+//                   $size: {
+//                     $filter: {
+//                       input: "$travellers", as: "t",
+//                       cond: {
+//                         $and: [
+//                           { $eq: ["$$t.gender", "Male"] },
+//                           { $gt: ["$$t.age", 10] },
+//                           { $ne: ["$$t.cancelled.byAdmin", true] },
+//                           { $ne: ["$$t.cancelled.byTraveller", true] },
+//                         ]
+//                       }
+//                     }
+//                   }
+//                 },
+//                 0
+//               ]
+//             }
+//           },
+
+//           totalChild: {
+//             $sum: {
+//               $cond: [
+//                 { $eq: ["$payment.advance.paid", true] },
+//                 {
+//                   $size: {
+//                     $filter: {
+//                       input: "$travellers", as: "t",
+//                       cond: {
+//                         $and: [
+//                           { $in: ["$$t.sharingType", ["withBerth", "withoutBerth"]] },
+//                           { $ne: ["$$t.cancelled.byAdmin", true] },
+//                           { $ne: ["$$t.cancelled.byTraveller", true] },
+//                         ]
+//                       }
+//                     }
+//                   }
+//                 },
+//                 0
+//               ]
+//             }
+//           },
+
+//           // ── Cancellation amounts ─────────────────────────────────
+
+//           totalGVPool: { $sum: { $ifNull: ["$gvCancellationPool", 0] } },
+//           totalIRCTCPool: { $sum: { $ifNull: ["$irctcCancellationPool", 0] } },
+//         }
+//       },
+//       {
+//         $project: {
+//           _id: 0,
+//           totalBookings: 1,
+//           unverifiedBookings: 1,
+//           activeBookings: 1,
+//           completedBookings: 1,
+//           fullyCancelledBookings: 1,
+//           rejectedBookings: 1,
+//           totalTravellers: 1,
+//           unverifiedTravellers: 1,
+//           activeTravellers: 1,
+//           cancelledTravellers: 1,
+//           cancellationRequestTravellers: 1,
+//           rejectedTravellers: 1,
+//           totalFemale: 1,
+//           totalMale: 1,
+//           totalChild: 1,
+//           totalGVPool: 1,
+//           totalIRCTCPool: 1,
+//           totalCancelAmount: { $add: ["$totalGVPool", "$totalIRCTCPool"] },
+//         }
+//       }
+//     ]);
+
+//     return res.status(200).json({
+//       success: true,
+//       data: {
+//         totalTours:                    matchTourIds.length || (await tourModel.countDocuments()),
+//         totalBookings:                 stats?.totalBookings                 || 0,
+//         unverifiedBookings:            stats?.unverifiedBookings            || 0,
+//         activeBookings:                stats?.activeBookings                || 0,
+//         completedBookings:             stats?.completedBookings             || 0,
+//         fullyCancelledBookings:        stats?.fullyCancelledBookings        || 0,
+//         rejectedBookings:              stats?.rejectedBookings              || 0,
+//         totalTravellers:               stats?.totalTravellers               || 0,
+//         unverifiedTravellers:          stats?.unverifiedTravellers          || 0,
+//         activeTravellers:              stats?.activeTravellers              || 0,
+//         cancelledTravellers:           stats?.cancelledTravellers           || 0,
+//         cancellationRequestTravellers: stats?.cancellationRequestTravellers || 0,
+//         rejectedTravellers:            stats?.rejectedTravellers            || 0,
+//         totalFemale:                   stats?.totalFemale                   || 0,
+//         totalMale:                     stats?.totalMale                     || 0,
+//         totalChild:                    stats?.totalChild                    || 0,
+//         totalGVPool:                   stats?.totalGVPool                   || 0,
+//         totalIRCTCPool:                stats?.totalIRCTCPool                || 0,
+//         totalCancelAmount:             stats?.totalCancelAmount             || 0,
+//       }
+//     });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+
+// // ════════════════════════════════════════════════════════════════
+// //  2. YEAR-WISE — travellers + traveller status + tour status
+// //  GET /api/touradmin/analytics-year-wise
+// // ════════════════════════════════════════════════════════════════
+// const getAnalyticsYearWise = async (req, res) => {
+//   try {
+//     const toursByYear = await tourModel.aggregate([
+//       { $group: { _id: { $year: "$lastBookingDate" }, tourIds: { $push: "$_id" }, tourCount: { $sum: 1 } } },
+//       { $sort: { _id: 1 } }
+//     ]);
+
+//     const result = await Promise.all(toursByYear.map(async (yr) => {
+//       const [stats] = await tourBookingModel.aggregate([
+//         { $match: { tourId: { $in: yr.tourIds } } },
+//         {
+//           $group: {
+//             _id: null,
+//             travellers: { $sum: { $size: "$travellers" } },
+//             bookings: { $sum: 1 },
+
+//             activeTravellers: {
+//               $sum: {
+//                 $size: {
+//                   $filter: {
+//                     input: "$travellers", as: "t",
+//                     cond: {
+//                       $and: [
+//                         { $ne: ["$$t.cancelled.byAdmin", true] },
+//                         { $ne: ["$$t.cancelled.byTraveller", true] },
+//                       ]
+//                     }
+//                   }
+//                 }
+//               }
+//             },
+//             cancelledTravellers: {
+//               $sum: {
+//                 $size: {
+//                   $filter: {
+//                     input: "$travellers", as: "t",
+//                     cond: {
+//                       $and: [
+//                         { $eq: ["$$t.cancelled.byAdmin", true] },
+//                         { $eq: ["$$t.cancelled.byTraveller", true] },
+//                       ]
+//                     }
+//                   }
+//                 }
+//               }
+//             },
+//             rejectedTravellers: {
+//               $sum: {
+//                 $size: {
+//                   $filter: {
+//                     input: "$travellers", as: "t",
+//                     cond: {
+//                       $and: [
+//                         { $eq: ["$$t.cancelled.byAdmin", true] },
+//                         { $ne: ["$$t.cancelled.byTraveller", true] },
+//                       ]
+//                     }
+//                   }
+//                 }
+//               }
+//             },
+
+//             completedBookings: {
+//               $sum: {
+//                 $cond: [{
+//                   $and: [
+//                     { $eq: ["$payment.advance.paid", true] },
+//                     { $eq: ["$payment.balance.paid", true] },
+//                   ]
+//                 }, 1, 0]
+//               }
+//             },
+//             activeBookings: {
+//               $sum: {
+//                 $cond: [{
+//                   $and: [
+//                     { $eq: ["$payment.advance.paid", true] },
+//                     { $ne: ["$payment.balance.paid", true] },
+//                   ]
+//                 }, 1, 0]
+//               }
+//             },
+//             unverifiedBookings: {
+//               $sum: { $cond: [{ $ne: ["$payment.advance.paid", true] }, 1, 0] }
+//             },
+//           }
+//         }
+//       ]);
+
+//       const toursThisYear = await tourModel.find(
+//         { _id: { $in: yr.tourIds } },
+//         { available: 1, _id: 0 }
+//       ).lean();
+//       const availableTours = toursThisYear.filter(t => t.available !== false).length;
+//       const soldoutTours = toursThisYear.filter(t => t.available === false).length;
+
+//       return {
+//         _id: yr._id,
+//         tourCount: yr.tourCount,
+//         availableTours,
+//         soldoutTours,
+//         travellers:          stats?.travellers          || 0,
+//         bookings:            stats?.bookings            || 0,
+//         activeTravellers:    stats?.activeTravellers    || 0,
+//         cancelledTravellers: stats?.cancelledTravellers || 0,
+//         rejectedTravellers:  stats?.rejectedTravellers  || 0,
+//         completedBookings:   stats?.completedBookings   || 0,
+//         activeBookings:      stats?.activeBookings      || 0,
+//         unverifiedBookings:  stats?.unverifiedBookings  || 0,
+//       };
+//     }));
+
+//     return res.status(200).json({ success: true, data: result });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+// // ════════════════════════════════════════════════════════════════
+// //  3. MONTH-WISE — travellers + traveller status + tour status
+// //  GET /api/touradmin/analytics-month-wise?year=2026
+// // ════════════════════════════════════════════════════════════════
+// const getAnalyticsMonthWise = async (req, res) => {
+//   try {
+//     const { year, month } = req.query;
+
+//     const tourMatch = {};
+//     if (year && month) {
+//       const y = parseInt(year), m = parseInt(month);
+//       tourMatch.lastBookingDate = { $gte: new Date(y, m - 1, 1), $lt: new Date(y, m, 1) };
+//     } else if (year) {
+//       const y = parseInt(year);
+//       tourMatch.lastBookingDate = { $gte: new Date(`${y}-01-01`), $lt: new Date(`${y + 1}-01-01`) };
+//     } else if (month) {
+//       tourMatch.$expr = { $eq: [{ $month: "$lastBookingDate" }, parseInt(month)] };
+//     } else {
+//       const y = new Date().getFullYear();
+//       tourMatch.lastBookingDate = { $gte: new Date(`${y}-01-01`), $lt: new Date(`${y + 1}-01-01`) };
+//     }
+
+//     const toursByGroup = await tourModel.aggregate([
+//       { $match: tourMatch },
+//       {
+//         $group: {
+//           _id: { year: { $year: "$lastBookingDate" }, month: { $month: "$lastBookingDate" } },
+//           tourIds: { $push: "$_id" },
+//           tourCount: { $sum: 1 },
+//         }
+//       },
+//       { $sort: { "_id.year": 1, "_id.month": 1 } }
+//     ]);
+
+//     const result = await Promise.all(toursByGroup.map(async (grp) => {
+//       const [stats] = await tourBookingModel.aggregate([
+//         { $match: { tourId: { $in: grp.tourIds } } },
+//         {
+//           $group: {
+//             _id: null,
+//             travellers: { $sum: { $size: "$travellers" } },
+//             bookings: { $sum: 1 },
+
+//             activeTravellers: {
+//               $sum: {
+//                 $size: {
+//                   $filter: {
+//                     input: "$travellers", as: "t",
+//                     cond: {
+//                       $and: [
+//                         { $ne: ["$$t.cancelled.byAdmin", true] },
+//                         { $ne: ["$$t.cancelled.byTraveller", true] },
+//                       ]
+//                     }
+//                   }
+//                 }
+//               }
+//             },
+//             cancelledTravellers: {
+//               $sum: {
+//                 $size: {
+//                   $filter: {
+//                     input: "$travellers", as: "t",
+//                     cond: {
+//                       $and: [
+//                         { $eq: ["$$t.cancelled.byAdmin", true] },
+//                         { $eq: ["$$t.cancelled.byTraveller", true] },
+//                       ]
+//                     }
+//                   }
+//                 }
+//               }
+//             },
+//             rejectedTravellers: {
+//               $sum: {
+//                 $size: {
+//                   $filter: {
+//                     input: "$travellers", as: "t",
+//                     cond: {
+//                       $and: [
+//                         { $eq: ["$$t.cancelled.byAdmin", true] },
+//                         { $ne: ["$$t.cancelled.byTraveller", true] },
+//                       ]
+//                     }
+//                   }
+//                 }
+//               }
+//             },
+
+//             completedBookings: {
+//               $sum: {
+//                 $cond: [{
+//                   $and: [
+//                     { $eq: ["$payment.advance.paid", true] },
+//                     { $eq: ["$payment.balance.paid", true] },
+//                   ]
+//                 }, 1, 0]
+//               }
+//             },
+//             activeBookings: {
+//               $sum: {
+//                 $cond: [{
+//                   $and: [
+//                     { $eq: ["$payment.advance.paid", true] },
+//                     { $ne: ["$payment.balance.paid", true] },
+//                   ]
+//                 }, 1, 0]
+//               }
+//             },
+//             unverifiedBookings: {
+//               $sum: { $cond: [{ $ne: ["$payment.advance.paid", true] }, 1, 0] }
+//             },
+
+//             gvPool: { $sum: { $ifNull: ["$gvCancellationPool", 0] } },
+//             irctcPool: { $sum: { $ifNull: ["$irctcCancellationPool", 0] } },
+//           }
+//         }
+//       ]);
+
+//       const toursThisMonth = await tourModel.find(
+//         { _id: { $in: grp.tourIds } },
+//         { available: 1, _id: 0 }
+//       ).lean();
+//       const availableTours = toursThisMonth.filter(t => t.available !== false).length;
+//       const soldoutTours = toursThisMonth.filter(t => t.available === false).length;
+
+//       return {
+//         year: grp._id.year,
+//         month: grp._id.month,
+//         tourCount: grp.tourCount,
+//         availableTours,
+//         soldoutTours,
+//         travellers:          stats?.travellers          || 0,
+//         bookings:            stats?.bookings            || 0,
+//         activeTravellers:    stats?.activeTravellers    || 0,
+//         cancelledTravellers: stats?.cancelledTravellers || 0,
+//         rejectedTravellers:  stats?.rejectedTravellers  || 0,
+//         completedBookings:   stats?.completedBookings   || 0,
+//         activeBookings:      stats?.activeBookings      || 0,
+//         unverifiedBookings:  stats?.unverifiedBookings  || 0,
+//         gvPool:              stats?.gvPool              || 0,
+//         irctcPool:           stats?.irctcPool           || 0,
+//       };
+//     }));
+
+//     return res.status(200).json({ success: true, data: result });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+// // ════════════════════════════════════════════════════════════════
+// //  4. CANCELLATION — year-wise + month-wise GV & IRCTC
+// //  GET /api/touradmin/analytics-cancellation?view=year|month&year=2026
+// // ════════════════════════════════════════════════════════════════
+// const getAnalyticsCancellation = async (req, res) => {
+//   try {
+//     const { view = "year", year } = req.query;
+
+//     if (view === "month") {
+//       const y = parseInt(year) || new Date().getFullYear();
+//       const tourMatch = {
+//         lastBookingDate: { $gte: new Date(`${y}-01-01`), $lt: new Date(`${y + 1}-01-01`) }
+//       };
+
+//       const toursByMonth = await tourModel.aggregate([
+//         { $match: tourMatch },
+//         {
+//           $group: {
+//             _id: { $month: "$lastBookingDate" },
+//             tourIds: { $push: "$_id" },
+//           }
+//         },
+//         { $sort: { _id: 1 } }
+//       ]);
+
+//       const result = await Promise.all(toursByMonth.map(async (mo) => {
+//         const [stats] = await tourBookingModel.aggregate([
+//           { $match: { tourId: { $in: mo.tourIds } } },
+//           {
+//             $group: {
+//               _id: null,
+//               gvPool: { $sum: { $ifNull: ["$gvCancellationPool", 0] } },
+//               irctcPool: { $sum: { $ifNull: ["$irctcCancellationPool", 0] } },
+//             }
+//           }
+//         ]);
+//         return { _id: mo._id, year: y, gvPool: stats?.gvPool || 0, irctcPool: stats?.irctcPool || 0 };
+//       }));
+
+//       return res.status(200).json({ success: true, data: result });
+//     }
+
+//     // Year-wise (default)
+//     const toursByYear = await tourModel.aggregate([
+//       { $group: { _id: { $year: "$lastBookingDate" }, tourIds: { $push: "$_id" } } },
+//       { $sort: { _id: 1 } }
+//     ]);
+
+//     const result = await Promise.all(toursByYear.map(async (yr) => {
+//       const [stats] = await tourBookingModel.aggregate([
+//         {
+//           $match: {
+//             tourId: { $in: yr.tourIds }, $or: [
+//               { gvCancellationPool: { $gt: 0 } },
+//               { irctcCancellationPool: { $gt: 0 } },
+//             ]
+//           }
+//         },
+//         {
+//           $group: {
+//             _id: null,
+//             gvPool: { $sum: { $ifNull: ["$gvCancellationPool", 0] } },
+//             irctcPool: { $sum: { $ifNull: ["$irctcCancellationPool", 0] } },
+//           }
+//         }
+//       ]);
+//       return { _id: yr._id, gvPool: stats?.gvPool || 0, irctcPool: stats?.irctcPool || 0 };
+//     }));
+
+//     return res.status(200).json({ success: true, data: result });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+// // ════════════════════════════════════════════════════════════════
+// //  5. TOUR LIST TABLE
+// //  GET /api/touradmin/analytics-tour-list?year=&month=&type=&status=&tourId=
+// // ════════════════════════════════════════════════════════════════
+// const getAnalyticsTourList = async (req, res) => {
+//   try {
+//     const { year, month, type, status, tourId } = req.query;
+//     const tourIds = tourId ? tourId.split(",") : [];
+
+//     const tourQuery = buildTourDateQuery({ year, month });
+//     if (tourIds.length) {
+//       tourQuery._id = { $in: tourIds.map(id => new mongoose.Types.ObjectId(id)) };
+//     }
+//     if (type) tourQuery.batch = { $regex: type, $options: "i" };
+
+//     const allTours = await tourModel.find(
+//       tourQuery,
+//       { title: 1, batch: 1, available: 1, lastBookingDate: 1 }
+//     ).sort({ lastBookingDate: -1 }).lean();
+
+//     if (!allTours.length) return res.status(200).json({ success: true, data: [] });
+
+//     const allTourIds = allTours.map(t => t._id);
+//     const bookingData = await getBookingStatsByTourIds(allTourIds);
+//     let result = mergeTourBooking(allTours, bookingData);
+
+//     if (status) {
+//       result = result.filter(t => {
+//         if (status === "Completed") return t.isCompleted === 1;
+//         if (status === "Soldout") return t.isCompleted === 0 && t.available === false;
+//         if (status === "Available") return t.isCompleted === 0 && t.available !== false;
+//         return true;
+//       });
+//     }
+
+//     return res.status(200).json({ success: true, data: result });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+// // ════════════════════════════════════════════════════════════════
+// //  6. TOUR SEARCH
+// //  GET /api/touradmin/analytics-search?q=KER&year=2026&month=8
+// // ════════════════════════════════════════════════════════════════
+// const searchAnalyticsTours = async (req, res) => {
+//   try {
+//     const { q, year, month, status } = req.query;
+//     if (!q) return res.status(400).json({ success: false, message: "Query 'q' required" });
+
+//     const tourQuery = {
+//       title: { $regex: `^${q}`, $options: "i" },
+//       ...buildTourDateQuery({ year, month }),
+//     };
+
+//     const tourDocs = await tourModel.find(
+//       tourQuery,
+//       { title: 1, batch: 1, available: 1, lastBookingDate: 1 }
+//     ).limit(30).lean();
+
+//     if (!tourDocs.length) return res.status(200).json({ success: true, data: [] });
+
+//     const allTourIds = tourDocs.map(t => t._id);
+//     const bookingData = await getBookingStatsByTourIds(allTourIds);
+//     let result = mergeTourBooking(tourDocs, bookingData);
+
+//     if (status) {
+//       result = result.filter(t => {
+//         if (status === "Completed") return t.isCompleted === 1;
+//         if (status === "Active") return t.isCompleted === 0;
+//         return true;
+//       });
+//     }
+
+//     return res.status(200).json({ success: true, data: result });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+
 // ════════════════════════════════════════════════════════════════
 //  ANALYTICS — replace existing analytics section in touradminController.js
+//
+//  RANGE FILTER SUPPORT ADDED:
+//  - year / month        -> existing single-value filters (unchanged behaviour)
+//  - fromYear / toYear    -> year RANGE (e.g. 2025–2029), inclusive both ends
+//  - fromMonth / toMonth  -> month RANGE (e.g. Jan–Jun = 1–6), inclusive,
+//                            applied INDEPENDENTLY within each matched year
+//                            (NOT a single cross-year date span)
+//
+//  Combining rules (confirmed):
+//  - year range + month range are independent AND filters.
+//    e.g. fromYear=2025&toYear=2029&fromMonth=1&toMonth=6 means:
+//    "tours whose departure falls in Jan–Jun of ANY year from 2025–2029"
+//  - If both single (year/month) AND range (fromYear.../fromMonth...) params
+//    are sent, range params take priority (single values are legacy/back-compat).
 // ════════════════════════════════════════════════════════════════
 
-// ─── Helper: tour departure date filter ──────────────────────
-function buildTourDateQuery({ year, month }) {
+// ─── Helper: tour departure date filter (single OR range) ──────────────
+function buildTourDateQuery({ year, month, fromYear, toYear, fromMonth, toMonth }) {
   const q = {};
+  const exprClauses = [];
+
+  const hasYearRange = fromYear || toYear;
+  const hasMonthRange = fromMonth || toMonth;
+
+  if (hasYearRange) {
+    const fy = fromYear ? parseInt(fromYear) : null;
+    const ty = toYear ? parseInt(toYear) : null;
+    const yearExpr = { $year: "$lastBookingDate" };
+    if (fy !== null) exprClauses.push({ $gte: [yearExpr, fy] });
+    if (ty !== null) exprClauses.push({ $lte: [yearExpr, ty] });
+  }
+
+  if (hasMonthRange) {
+    const fm = fromMonth ? parseInt(fromMonth) : 1;
+    const tm = toMonth ? parseInt(toMonth) : 12;
+    const monthExpr = { $month: "$lastBookingDate" };
+    if (fm <= tm) {
+      // Normal range within a year, e.g. Jan(1)–Jun(6)
+      exprClauses.push({ $gte: [monthExpr, fm] });
+      exprClauses.push({ $lte: [monthExpr, tm] });
+    } else {
+      // Wrap-around range, e.g. Nov(11)–Feb(2) -> month >= 11 OR month <= 2
+      exprClauses.push({ $or: [{ $gte: [monthExpr, fm] }, { $lte: [monthExpr, tm] }] });
+    }
+  }
+
+  if (exprClauses.length) {
+    q.$expr = exprClauses.length === 1 ? exprClauses[0] : { $and: exprClauses };
+    return q;
+  }
+
+  // ── Legacy single year/month (back-compat, used when no range params sent) ──
   if (year && month) {
     const y = parseInt(year), m = parseInt(month);
     q.lastBookingDate = { $gte: new Date(y, m - 1, 1), $lt: new Date(y, m, 1) };
@@ -3246,6 +4334,12 @@ function buildTourDateQuery({ year, month }) {
   return q;
 }
 
+
+// ════════════════════════════════════════════════════════════════
+//  Updated helper functions for tour list table
+//  Replace in touradminController.js
+// ════════════════════════════════════════════════════════════════
+
 // ─── Helper: booking stats per tourId ────────────────────────
 async function getBookingStatsByTourIds(tourIds) {
   if (!tourIds.length) return [];
@@ -3256,10 +4350,36 @@ async function getBookingStatsByTourIds(tourIds) {
         _id: "$tourId",
         totalTNR: { $sum: 1 },
 
-        // ── Traveller counts ──
-        totalTravellers: { $sum: { $size: "$travellers" } },
+        // ── Travellers (active) ──
+        // Includes: never-cancelled + cancel-request-pending + unverified travellers
+        // Excludes: travellers where byAdmin=true (covers both "cancelled" and "rejected")
+        totalTravellers: {
+          $sum: {
+            $size: {
+              $filter: {
+                input: "$travellers", as: "t",
+                cond: { $ne: ["$$t.cancelled.byAdmin", true] }
+              }
+            }
+          }
+        },
 
-        // Female = gender Female AND age > 10
+        // ── Cancelled Travellers (new column) = cancelled + rejected combined ──
+        // cancelled: byAdmin=true AND byTraveller=true
+        // rejected:  byAdmin=true AND byTraveller≠true
+        // combined condition: byAdmin=true (covers both cases)
+        cancelledTravellers: {
+          $sum: {
+            $size: {
+              $filter: {
+                input: "$travellers", as: "t",
+                cond: { $eq: ["$$t.cancelled.byAdmin", true] }
+              }
+            }
+          }
+        },
+
+        // ── Gender: same group as totalTravellers (byAdmin ≠ true) ──
         totalFemale: {
           $sum: {
             $size: {
@@ -3268,14 +4388,14 @@ async function getBookingStatsByTourIds(tourIds) {
                 cond: {
                   $and: [
                     { $eq: ["$$t.gender", "Female"] },
-                    { $gt: ["$$t.age", 10] }
+                    { $gt: ["$$t.age", 10] },
+                    { $ne: ["$$t.cancelled.byAdmin", true] }
                   ]
                 }
               }
             }
           }
         },
-        // Male = gender Male AND age > 10
         totalMale: {
           $sum: {
             $size: {
@@ -3284,20 +4404,109 @@ async function getBookingStatsByTourIds(tourIds) {
                 cond: {
                   $and: [
                     { $eq: ["$$t.gender", "Male"] },
-                    { $gt: ["$$t.age", 10] }
+                    { $gt: ["$$t.age", 10] },
+                    { $ne: ["$$t.cancelled.byAdmin", true] }
                   ]
                 }
               }
             }
           }
         },
-        // Child = sharingType withBerth OR withoutBerth
         totalChild: {
           $sum: {
             $size: {
               $filter: {
                 input: "$travellers", as: "t",
-                cond: { $in: ["$$t.sharingType", ["withBerth", "withoutBerth"]] }
+                cond: {
+                  $and: [
+                    { $in: ["$$t.sharingType", ["withBerth", "withoutBerth"]] },
+                    { $ne: ["$$t.cancelled.byAdmin", true] }
+                  ]
+                }
+              }
+            }
+          }
+        },
+
+        // ── Card-expand breakdown (for mobile TourCard) ──
+        unverifiedTravellers: {
+          $sum: {
+            $cond: [
+              { $ne: ["$payment.advance.paid", true] },
+              {
+                $size: {
+                  $filter: {
+                    input: "$travellers", as: "t",
+                    cond: { $ne: ["$$t.cancelled.byAdmin", true] }
+                  }
+                }
+              },
+              0
+            ]
+          }
+        },
+        activeTravellers: {
+          $sum: {
+            $cond: [
+              { $eq: ["$payment.advance.paid", true] },
+              {
+                $size: {
+                  $filter: {
+                    input: "$travellers", as: "t",
+                    cond: {
+                      $and: [
+                        { $ne: ["$$t.cancelled.byAdmin", true] },
+                        { $ne: ["$$t.cancelled.byTraveller", true] },
+                      ]
+                    }
+                  }
+                }
+              },
+              0
+            ]
+          }
+        },
+        cancellationRequestTravellers: {
+          $sum: {
+            $size: {
+              $filter: {
+                input: "$travellers", as: "t",
+                cond: {
+                  $and: [
+                    { $eq: ["$$t.cancelled.byTraveller", true] },
+                    { $ne: ["$$t.cancelled.byAdmin", true] },
+                  ]
+                }
+              }
+            }
+          }
+        },
+        fullyCancelledTravellers: {
+          $sum: {
+            $size: {
+              $filter: {
+                input: "$travellers", as: "t",
+                cond: {
+                  $and: [
+                    { $eq: ["$$t.cancelled.byAdmin", true] },
+                    { $eq: ["$$t.cancelled.byTraveller", true] },
+                  ]
+                }
+              }
+            }
+          }
+        },
+        rejectedTravellers: {
+          $sum: {
+            $size: {
+              $filter: {
+                input: "$travellers", as: "t",
+                cond: {
+                  $and: [
+                    { $eq: ["$$t.cancelled.byAdmin", true] },
+                    { $ne: ["$$t.cancelled.byTraveller", true] },
+                  ]
+                }
               }
             }
           }
@@ -3330,15 +4539,29 @@ function mergeTourBooking(allTours, bookingData) {
       departureDate: t.lastBookingDate || null,
       totalTNR: b.totalTNR || 0,
       totalTravellers: b.totalTravellers || 0,
+      cancelledTravellers: b.cancelledTravellers || 0,        // NEW column
       totalFemale: b.totalFemale || 0,
       totalMale: b.totalMale || 0,
       totalChild: b.totalChild || 0,
+      // breakdown — used by mobile card expand view
+      unverifiedTravellers: b.unverifiedTravellers || 0,
+      activeTravellers: b.activeTravellers || 0,
+      cancellationRequestTravellers: b.cancellationRequestTravellers || 0,
+      fullyCancelledTravellers: b.fullyCancelledTravellers || 0,
+      rejectedTravellers: b.rejectedTravellers || 0,
       isCompleted: b.isCompleted ?? 0,
       gvPool: b.gvPool || 0,
       irctcPool: b.irctcPool || 0,
     };
   });
 }
+
+// ════════════════════════════════════════════════════════════════
+//  Sanity check (run manually in DB to verify):
+//  totalTravellers + cancelledTravellers === sum of all travellers in booking
+//  (because totalTravellers uses byAdmin≠true, cancelledTravellers uses byAdmin=true
+//   — these are complementary sets with zero overlap and zero gap)
+// ════════════════════════════════════════════════════════════════
 
 
 function emptyStats() {
@@ -3354,18 +4577,25 @@ function emptyStats() {
 }
 
 
+// ════════════════════════════════════════════════════════════════
+//  1. SUMMARY
+//  GET /api/touradmin/analytics-summary
+//     ?year=&month=&tourId=
+//     ?fromYear=&toYear=&fromMonth=&toMonth=&tourId=   (range mode)
+// ════════════════════════════════════════════════════════════════
 const getAnalyticsSummary = async (req, res) => {
   try {
-    const { year, month, tourId } = req.query;
+    const { year, month, tourId, fromYear, toYear, fromMonth, toMonth } = req.query;
     const tourIds = tourId ? tourId.split(",") : [];
 
-    const tourQuery = buildTourDateQuery({ year, month });
+    const tourQuery = buildTourDateQuery({ year, month, fromYear, toYear, fromMonth, toMonth });
     if (tourIds.length) {
       tourQuery._id = { $in: tourIds.map(id => new mongoose.Types.ObjectId(id)) };
     }
 
     let matchTourIds = [];
-    if (year || month || tourIds.length) {
+    const hasAnyDateFilter = year || month || fromYear || toYear || fromMonth || toMonth || tourIds.length;
+    if (hasAnyDateFilter) {
       const tours = await tourModel.find(tourQuery, { _id: 1 }).lean();
       matchTourIds = tours.map(t => t._id);
       if (!matchTourIds.length) {
@@ -3377,7 +4607,6 @@ const getAnalyticsSummary = async (req, res) => {
 
     // ── Helper expressions ──────────────────────────────────────
 
-    // All travellers fully cancelled (byAdmin=true AND byTraveller=true)
     const allCancelledExpr = {
       $and: [
         { $gt: [{ $size: "$travellers" }, 0] },
@@ -3402,7 +4631,6 @@ const getAnalyticsSummary = async (req, res) => {
       ]
     };
 
-    // All travellers rejected by admin (byAdmin=true AND byTraveller=false)
     const allRejectedExpr = {
       $and: [
         { $gt: [{ $size: "$travellers" }, 0] },
@@ -3435,7 +4663,6 @@ const getAnalyticsSummary = async (req, res) => {
 
           totalBookings: { $sum: 1 },
 
-          // Unverified = advance NOT paid AND NOT fully cancelled AND NOT all rejected
           unverifiedBookings: {
             $sum: {
               $cond: [{
@@ -3448,7 +4675,6 @@ const getAnalyticsSummary = async (req, res) => {
             }
           },
 
-          // Active = advance paid + balance NOT paid + NOT fully cancelled + NOT all rejected
           activeBookings: {
             $sum: {
               $cond: [{
@@ -3462,7 +4688,6 @@ const getAnalyticsSummary = async (req, res) => {
             }
           },
 
-          // Completed = advance paid + balance paid + NOT fully cancelled + NOT all rejected
           completedBookings: {
             $sum: {
               $cond: [{
@@ -3476,12 +4701,10 @@ const getAnalyticsSummary = async (req, res) => {
             }
           },
 
-          // Fully Cancelled = all travellers byAdmin=true AND byTraveller=true
           fullyCancelledBookings: {
             $sum: { $cond: [allCancelledExpr, 1, 0] }
           },
 
-          // Rejected = all travellers byAdmin=true AND byTraveller=false
           rejectedBookings: {
             $sum: { $cond: [allRejectedExpr, 1, 0] }
           },
@@ -3490,20 +4713,37 @@ const getAnalyticsSummary = async (req, res) => {
 
           totalTravellers: { $sum: { $size: "$travellers" } },
 
-          // Active traveller: byAdmin=false AND byTraveller=false
+          // Unverified travellers = travellers in bookings where advance NOT paid
+          unverifiedTravellers: {
+            $sum: {
+              $cond: [
+                { $ne: ["$payment.advance.paid", true] },
+                { $size: "$travellers" },
+                0
+              ]
+            }
+          },
+
+          // Active traveller: advance PAID + byAdmin=false AND byTraveller=false
           activeTravellers: {
             $sum: {
-              $size: {
-                $filter: {
-                  input: "$travellers", as: "t",
-                  cond: {
-                    $and: [
-                      { $ne: ["$$t.cancelled.byAdmin", true] },
-                      { $ne: ["$$t.cancelled.byTraveller", true] },
-                    ]
+              $cond: [
+                { $eq: ["$payment.advance.paid", true] },
+                {
+                  $size: {
+                    $filter: {
+                      input: "$travellers", as: "t",
+                      cond: {
+                        $and: [
+                          { $ne: ["$$t.cancelled.byAdmin", true] },
+                          { $ne: ["$$t.cancelled.byTraveller", true] },
+                        ]
+                      }
+                    }
                   }
-                }
-              }
+                },
+                0
+              ]
             }
           },
 
@@ -3558,58 +4798,76 @@ const getAnalyticsSummary = async (req, res) => {
             }
           },
 
-          // ── Gender (excludes cancelled/rejected travellers) ──────
+          // ── Gender (advance paid + NOT cancelled) ────────────────
 
           totalFemale: {
             $sum: {
-              $size: {
-                $filter: {
-                  input: "$travellers", as: "t",
-                  cond: {
-                    $and: [
-                      { $eq: ["$$t.gender", "Female"] },
-                      { $gt: ["$$t.age", 10] },
-                      { $ne: ["$$t.cancelled.byAdmin", true] },
-                      { $ne: ["$$t.cancelled.byTraveller", true] },
-                    ]
+              $cond: [
+                { $eq: ["$payment.advance.paid", true] },
+                {
+                  $size: {
+                    $filter: {
+                      input: "$travellers", as: "t",
+                      cond: {
+                        $and: [
+                          { $eq: ["$$t.gender", "Female"] },
+                          { $gt: ["$$t.age", 10] },
+                          { $ne: ["$$t.cancelled.byAdmin", true] },
+                          { $ne: ["$$t.cancelled.byTraveller", true] },
+                        ]
+                      }
+                    }
                   }
-                }
-              }
+                },
+                0
+              ]
             }
           },
 
           totalMale: {
             $sum: {
-              $size: {
-                $filter: {
-                  input: "$travellers", as: "t",
-                  cond: {
-                    $and: [
-                      { $eq: ["$$t.gender", "Male"] },
-                      { $gt: ["$$t.age", 10] },
-                      { $ne: ["$$t.cancelled.byAdmin", true] },
-                      { $ne: ["$$t.cancelled.byTraveller", true] },
-                    ]
+              $cond: [
+                { $eq: ["$payment.advance.paid", true] },
+                {
+                  $size: {
+                    $filter: {
+                      input: "$travellers", as: "t",
+                      cond: {
+                        $and: [
+                          { $eq: ["$$t.gender", "Male"] },
+                          { $gt: ["$$t.age", 10] },
+                          { $ne: ["$$t.cancelled.byAdmin", true] },
+                          { $ne: ["$$t.cancelled.byTraveller", true] },
+                        ]
+                      }
+                    }
                   }
-                }
-              }
+                },
+                0
+              ]
             }
           },
 
           totalChild: {
             $sum: {
-              $size: {
-                $filter: {
-                  input: "$travellers", as: "t",
-                  cond: {
-                    $and: [
-                      { $in: ["$$t.sharingType", ["withBerth", "withoutBerth"]] },
-                      { $ne: ["$$t.cancelled.byAdmin", true] },
-                      { $ne: ["$$t.cancelled.byTraveller", true] },
-                    ]
+              $cond: [
+                { $eq: ["$payment.advance.paid", true] },
+                {
+                  $size: {
+                    $filter: {
+                      input: "$travellers", as: "t",
+                      cond: {
+                        $and: [
+                          { $in: ["$$t.sharingType", ["withBerth", "withoutBerth"]] },
+                          { $ne: ["$$t.cancelled.byAdmin", true] },
+                          { $ne: ["$$t.cancelled.byTraveller", true] },
+                        ]
+                      }
+                    }
                   }
-                }
-              }
+                },
+                0
+              ]
             }
           },
 
@@ -3629,6 +4887,7 @@ const getAnalyticsSummary = async (req, res) => {
           fullyCancelledBookings: 1,
           rejectedBookings: 1,
           totalTravellers: 1,
+          unverifiedTravellers: 1,
           activeTravellers: 1,
           cancelledTravellers: 1,
           cancellationRequestTravellers: 1,
@@ -3654,6 +4913,7 @@ const getAnalyticsSummary = async (req, res) => {
         fullyCancelledBookings:        stats?.fullyCancelledBookings        || 0,
         rejectedBookings:              stats?.rejectedBookings              || 0,
         totalTravellers:               stats?.totalTravellers               || 0,
+        unverifiedTravellers:          stats?.unverifiedTravellers          || 0,
         activeTravellers:              stats?.activeTravellers              || 0,
         cancelledTravellers:           stats?.cancelledTravellers           || 0,
         cancellationRequestTravellers: stats?.cancellationRequestTravellers || 0,
@@ -3675,10 +4935,23 @@ const getAnalyticsSummary = async (req, res) => {
 // ════════════════════════════════════════════════════════════════
 //  2. YEAR-WISE — travellers + traveller status + tour status
 //  GET /api/touradmin/analytics-year-wise
+//     ?fromYear=&toYear=   (optional — restrict which years are returned)
 // ════════════════════════════════════════════════════════════════
 const getAnalyticsYearWise = async (req, res) => {
   try {
+    const { fromYear, toYear } = req.query;
+
+    const yearMatch = {};
+    if (fromYear || toYear) {
+      const yearExpr = { $year: "$lastBookingDate" };
+      const clauses = [];
+      if (fromYear) clauses.push({ $gte: [yearExpr, parseInt(fromYear)] });
+      if (toYear) clauses.push({ $lte: [yearExpr, parseInt(toYear)] });
+      yearMatch.$expr = clauses.length === 1 ? clauses[0] : { $and: clauses };
+    }
+
     const toursByYear = await tourModel.aggregate([
+      ...(Object.keys(yearMatch).length ? [{ $match: yearMatch }] : []),
       { $group: { _id: { $year: "$lastBookingDate" }, tourIds: { $push: "$_id" }, tourCount: { $sum: 1 } } },
       { $sort: { _id: 1 } }
     ]);
@@ -3738,6 +5011,34 @@ const getAnalyticsYearWise = async (req, res) => {
               }
             },
 
+            // Unverified travellers = travellers in bookings where advance NOT paid
+            unverifiedTravellers: {
+              $sum: {
+                $cond: [
+                  { $ne: ["$payment.advance.paid", true] },
+                  { $size: "$travellers" },
+                  0
+                ]
+              }
+            },
+
+            // Cancel request: byTraveller=true AND byAdmin≠true
+            cancellationRequestTravellers: {
+              $sum: {
+                $size: {
+                  $filter: {
+                    input: "$travellers", as: "t",
+                    cond: {
+                      $and: [
+                        { $eq: ["$$t.cancelled.byTraveller", true] },
+                        { $ne: ["$$t.cancelled.byAdmin", true] },
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+
             completedBookings: {
               $sum: {
                 $cond: [{
@@ -3777,14 +5078,16 @@ const getAnalyticsYearWise = async (req, res) => {
         tourCount: yr.tourCount,
         availableTours,
         soldoutTours,
-        travellers:          stats?.travellers          || 0,
-        bookings:            stats?.bookings            || 0,
-        activeTravellers:    stats?.activeTravellers    || 0,
-        cancelledTravellers: stats?.cancelledTravellers || 0,
-        rejectedTravellers:  stats?.rejectedTravellers  || 0,
-        completedBookings:   stats?.completedBookings   || 0,
-        activeBookings:      stats?.activeBookings      || 0,
-        unverifiedBookings:  stats?.unverifiedBookings  || 0,
+        travellers:                    stats?.travellers                    || 0,
+        bookings:                      stats?.bookings                      || 0,
+        activeTravellers:              stats?.activeTravellers              || 0,
+        cancelledTravellers:           stats?.cancelledTravellers           || 0,
+        rejectedTravellers:            stats?.rejectedTravellers            || 0,
+        unverifiedTravellers:          stats?.unverifiedTravellers          || 0,
+        cancellationRequestTravellers: stats?.cancellationRequestTravellers || 0,
+        completedBookings:             stats?.completedBookings             || 0,
+        activeBookings:                stats?.activeBookings                || 0,
+        unverifiedBookings:            stats?.unverifiedBookings            || 0,
       };
     }));
 
@@ -3797,23 +5100,52 @@ const getAnalyticsYearWise = async (req, res) => {
 // ════════════════════════════════════════════════════════════════
 //  3. MONTH-WISE — travellers + traveller status + tour status
 //  GET /api/touradmin/analytics-month-wise?year=2026
+//     ?fromYear=&toYear=&fromMonth=&toMonth=   (range mode — overrides ?year=)
+//     When a year RANGE is given, returns one entry per {year, month} pair
+//     across ALL matched years, each restricted to the month range.
 // ════════════════════════════════════════════════════════════════
 const getAnalyticsMonthWise = async (req, res) => {
   try {
-    const { year, month } = req.query;
+    const { year, month, fromYear, toYear, fromMonth, toMonth } = req.query;
+
+    const hasYearRange = fromYear || toYear;
+    const hasMonthRange = fromMonth || toMonth;
 
     const tourMatch = {};
-    if (year && month) {
+    const exprClauses = [];
+
+    if (hasYearRange) {
+      const yearExpr = { $year: "$lastBookingDate" };
+      if (fromYear) exprClauses.push({ $gte: [yearExpr, parseInt(fromYear)] });
+      if (toYear) exprClauses.push({ $lte: [yearExpr, parseInt(toYear)] });
+    } else if (year && month) {
       const y = parseInt(year), m = parseInt(month);
       tourMatch.lastBookingDate = { $gte: new Date(y, m - 1, 1), $lt: new Date(y, m, 1) };
     } else if (year) {
       const y = parseInt(year);
       tourMatch.lastBookingDate = { $gte: new Date(`${y}-01-01`), $lt: new Date(`${y + 1}-01-01`) };
-    } else if (month) {
-      tourMatch.$expr = { $eq: [{ $month: "$lastBookingDate" }, parseInt(month)] };
-    } else {
+    } else if (!hasMonthRange) {
+      // No filters at all -> default to current year (legacy behaviour)
       const y = new Date().getFullYear();
       tourMatch.lastBookingDate = { $gte: new Date(`${y}-01-01`), $lt: new Date(`${y + 1}-01-01`) };
+    }
+
+    if (hasMonthRange) {
+      const fm = fromMonth ? parseInt(fromMonth) : 1;
+      const tm = toMonth ? parseInt(toMonth) : 12;
+      const monthExpr = { $month: "$lastBookingDate" };
+      if (fm <= tm) {
+        exprClauses.push({ $gte: [monthExpr, fm] });
+        exprClauses.push({ $lte: [monthExpr, tm] });
+      } else {
+        exprClauses.push({ $or: [{ $gte: [monthExpr, fm] }, { $lte: [monthExpr, tm] }] });
+      }
+    } else if (month && !year) {
+      exprClauses.push({ $eq: [{ $month: "$lastBookingDate" }, parseInt(month)] });
+    }
+
+    if (exprClauses.length) {
+      tourMatch.$expr = exprClauses.length === 1 ? exprClauses[0] : { $and: exprClauses };
     }
 
     const toursByGroup = await tourModel.aggregate([
@@ -3883,6 +5215,34 @@ const getAnalyticsMonthWise = async (req, res) => {
               }
             },
 
+            // Unverified travellers = travellers in bookings where advance NOT paid
+            unverifiedTravellers: {
+              $sum: {
+                $cond: [
+                  { $ne: ["$payment.advance.paid", true] },
+                  { $size: "$travellers" },
+                  0
+                ]
+              }
+            },
+
+            // Cancel request: byTraveller=true AND byAdmin≠true
+            cancellationRequestTravellers: {
+              $sum: {
+                $size: {
+                  $filter: {
+                    input: "$travellers", as: "t",
+                    cond: {
+                      $and: [
+                        { $eq: ["$$t.cancelled.byTraveller", true] },
+                        { $ne: ["$$t.cancelled.byAdmin", true] },
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+
             completedBookings: {
               $sum: {
                 $cond: [{
@@ -3926,16 +5286,18 @@ const getAnalyticsMonthWise = async (req, res) => {
         tourCount: grp.tourCount,
         availableTours,
         soldoutTours,
-        travellers:          stats?.travellers          || 0,
-        bookings:            stats?.bookings            || 0,
-        activeTravellers:    stats?.activeTravellers    || 0,
-        cancelledTravellers: stats?.cancelledTravellers || 0,
-        rejectedTravellers:  stats?.rejectedTravellers  || 0,
-        completedBookings:   stats?.completedBookings   || 0,
-        activeBookings:      stats?.activeBookings      || 0,
-        unverifiedBookings:  stats?.unverifiedBookings  || 0,
-        gvPool:              stats?.gvPool              || 0,
-        irctcPool:           stats?.irctcPool           || 0,
+        travellers:                    stats?.travellers                    || 0,
+        bookings:                      stats?.bookings                      || 0,
+        activeTravellers:              stats?.activeTravellers              || 0,
+        cancelledTravellers:           stats?.cancelledTravellers           || 0,
+        rejectedTravellers:            stats?.rejectedTravellers            || 0,
+        unverifiedTravellers:          stats?.unverifiedTravellers          || 0,
+        cancellationRequestTravellers: stats?.cancellationRequestTravellers || 0,
+        completedBookings:             stats?.completedBookings             || 0,
+        activeBookings:                stats?.activeBookings                || 0,
+        unverifiedBookings:            stats?.unverifiedBookings            || 0,
+        gvPool:                        stats?.gvPool                        || 0,
+        irctcPool:                     stats?.irctcPool                     || 0,
       };
     }));
 
@@ -3948,22 +5310,53 @@ const getAnalyticsMonthWise = async (req, res) => {
 // ════════════════════════════════════════════════════════════════
 //  4. CANCELLATION — year-wise + month-wise GV & IRCTC
 //  GET /api/touradmin/analytics-cancellation?view=year|month&year=2026
+//     ?view=year&fromYear=&toYear=                       (range mode)
+//     ?view=month&fromYear=&toYear=&fromMonth=&toMonth=   (range mode)
 // ════════════════════════════════════════════════════════════════
 const getAnalyticsCancellation = async (req, res) => {
   try {
-    const { view = "year", year } = req.query;
+    const { view = "year", year, fromYear, toYear, fromMonth, toMonth } = req.query;
+    const hasYearRange = fromYear || toYear;
+    const hasMonthRange = fromMonth || toMonth;
 
     if (view === "month") {
-      const y = parseInt(year) || new Date().getFullYear();
-      const tourMatch = {
-        lastBookingDate: { $gte: new Date(`${y}-01-01`), $lt: new Date(`${y + 1}-01-01`) }
-      };
+      const tourMatch = {};
+      const exprClauses = [];
+
+      if (hasYearRange) {
+        const yearExpr = { $year: "$lastBookingDate" };
+        if (fromYear) exprClauses.push({ $gte: [yearExpr, parseInt(fromYear)] });
+        if (toYear) exprClauses.push({ $lte: [yearExpr, parseInt(toYear)] });
+      } else {
+        const y = parseInt(year) || new Date().getFullYear();
+        tourMatch.lastBookingDate = { $gte: new Date(`${y}-01-01`), $lt: new Date(`${y + 1}-01-01`) };
+      }
+
+      if (hasMonthRange) {
+        const fm = fromMonth ? parseInt(fromMonth) : 1;
+        const tm = toMonth ? parseInt(toMonth) : 12;
+        const monthExpr = { $month: "$lastBookingDate" };
+        if (fm <= tm) {
+          exprClauses.push({ $gte: [monthExpr, fm] });
+          exprClauses.push({ $lte: [monthExpr, tm] });
+        } else {
+          exprClauses.push({ $or: [{ $gte: [monthExpr, fm] }, { $lte: [monthExpr, tm] }] });
+        }
+      }
+
+      if (exprClauses.length) {
+        tourMatch.$expr = exprClauses.length === 1 ? exprClauses[0] : { $and: exprClauses };
+      }
+
+      const groupKey = hasYearRange
+        ? { year: { $year: "$lastBookingDate" }, month: { $month: "$lastBookingDate" } }
+        : { $month: "$lastBookingDate" };
 
       const toursByMonth = await tourModel.aggregate([
         { $match: tourMatch },
         {
           $group: {
-            _id: { $month: "$lastBookingDate" },
+            _id: groupKey,
             tourIds: { $push: "$_id" },
           }
         },
@@ -3981,14 +5374,27 @@ const getAnalyticsCancellation = async (req, res) => {
             }
           }
         ]);
-        return { _id: mo._id, year: y, gvPool: stats?.gvPool || 0, irctcPool: stats?.irctcPool || 0 };
+        const baseEntry = hasYearRange
+          ? { _id: mo._id.month, year: mo._id.year }
+          : { _id: mo._id, year: parseInt(year) || new Date().getFullYear() };
+        return { ...baseEntry, gvPool: stats?.gvPool || 0, irctcPool: stats?.irctcPool || 0 };
       }));
 
       return res.status(200).json({ success: true, data: result });
     }
 
     // Year-wise (default)
+    const yearMatch = {};
+    if (hasYearRange) {
+      const yearExpr = { $year: "$lastBookingDate" };
+      const clauses = [];
+      if (fromYear) clauses.push({ $gte: [yearExpr, parseInt(fromYear)] });
+      if (toYear) clauses.push({ $lte: [yearExpr, parseInt(toYear)] });
+      yearMatch.$expr = clauses.length === 1 ? clauses[0] : { $and: clauses };
+    }
+
     const toursByYear = await tourModel.aggregate([
+      ...(Object.keys(yearMatch).length ? [{ $match: yearMatch }] : []),
       { $group: { _id: { $year: "$lastBookingDate" }, tourIds: { $push: "$_id" } } },
       { $sort: { _id: 1 } }
     ]);
@@ -4023,13 +5429,14 @@ const getAnalyticsCancellation = async (req, res) => {
 // ════════════════════════════════════════════════════════════════
 //  5. TOUR LIST TABLE
 //  GET /api/touradmin/analytics-tour-list?year=&month=&type=&status=&tourId=
+//     ?fromYear=&toYear=&fromMonth=&toMonth=&type=&status=&tourId=  (range mode)
 // ════════════════════════════════════════════════════════════════
 const getAnalyticsTourList = async (req, res) => {
   try {
-    const { year, month, type, status, tourId } = req.query;
+    const { year, month, type, status, tourId, fromYear, toYear, fromMonth, toMonth } = req.query;
     const tourIds = tourId ? tourId.split(",") : [];
 
-    const tourQuery = buildTourDateQuery({ year, month });
+    const tourQuery = buildTourDateQuery({ year, month, fromYear, toYear, fromMonth, toMonth });
     if (tourIds.length) {
       tourQuery._id = { $in: tourIds.map(id => new mongoose.Types.ObjectId(id)) };
     }
@@ -4064,15 +5471,16 @@ const getAnalyticsTourList = async (req, res) => {
 // ════════════════════════════════════════════════════════════════
 //  6. TOUR SEARCH
 //  GET /api/touradmin/analytics-search?q=KER&year=2026&month=8
+//     ?q=&fromYear=&toYear=&fromMonth=&toMonth=&status=   (range mode)
 // ════════════════════════════════════════════════════════════════
 const searchAnalyticsTours = async (req, res) => {
   try {
-    const { q, year, month, status } = req.query;
+    const { q, year, month, status, fromYear, toYear, fromMonth, toMonth } = req.query;
     if (!q) return res.status(400).json({ success: false, message: "Query 'q' required" });
 
     const tourQuery = {
       title: { $regex: `^${q}`, $options: "i" },
-      ...buildTourDateQuery({ year, month }),
+      ...buildTourDateQuery({ year, month, fromYear, toYear, fromMonth, toMonth }),
     };
 
     const tourDocs = await tourModel.find(
@@ -4099,7 +5507,6 @@ const searchAnalyticsTours = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
-
 
 
 
