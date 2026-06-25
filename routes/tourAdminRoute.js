@@ -1,6 +1,6 @@
 import express from "express";
 import {
-  addMissingFieldsToAllBookings,
+  // addMissingFieldsToAllBookings,
   addTour,
   allTours,
   approveBookingUpdate,
@@ -87,11 +87,11 @@ touradminRouter.get(
 );
 
 //Crictical
-touradminRouter.post(
-  "/add-missing-fields",
-  authAdmin,
-  addMissingFieldsToAllBookings,
-);
+// touradminRouter.post(
+//   "/add-missing-fields",
+//   authAdmin,
+//   addMissingFieldsToAllBookings,
+// );
 touradminRouter.get("/pending-approvals", authAdmin, getPendingApprovals);
 
 touradminRouter.post("/terms/add-points", addTermsPoints);
