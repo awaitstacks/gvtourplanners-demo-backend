@@ -1919,13 +1919,27 @@ const adminAllotRooms = async (req, res) => {
     const tripleSingles = { male: [], female: [] };
     const doubleSingles = { male: [], female: [] };
 
-    singleRooms.forEach((single) => {
+    // singleRooms.forEach((single) => {
+    //   const occupant = single.room.occupants[0];
+    //   const gender = occupant.gender.toLowerCase();
+    //   const original = occupant.sharingType;
+    //   if (original === "triple") tripleSingles[gender].push(single);
+    //   else if (original === "double") doubleSingles[gender].push(single);
+    // });
+        singleRooms.forEach((single) => {
       const occupant = single.room.occupants[0];
-      const gender = occupant.gender.toLowerCase();
+      const gender = (occupant.gender || "").toLowerCase();
       const original = occupant.sharingType;
-      if (original === "triple") tripleSingles[gender].push(single);
-      else if (original === "double") doubleSingles[gender].push(single);
+
+      if (gender === "male" || gender === "female") {
+        if (original === "triple") tripleSingles[gender].push(single);
+        else if (original === "double") doubleSingles[gender].push(single);
+      } else {
+        // unknown/missing gender — keep it as its own single room instead of crashing
+        rawRoomEntries[single.entryIndex].rooms.push(single.room);
+      }
     });
+
 
     ["male", "female"].forEach((gender) => {
       while (
