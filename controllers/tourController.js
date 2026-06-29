@@ -5741,8 +5741,6 @@ const getTourVehicleSeatOverview = async (req, res) => {
 };
 
 
-
-
 const adminCreateEnquiry = async (req, res) => {
   try {
     const {
@@ -5780,15 +5778,7 @@ const adminCreateEnquiry = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-// GET ALL — GET /api/tour/enquiry/all (user + admin both, sorted by createdAt desc)
-// const getAllEnquiries = async (req, res) => {
-//   try {
-//     const enquiries = await enquiryModel.find().sort({ createdAt: -1 });
-//     return res.status(200).json({ success: true, count: enquiries.length, data: enquiries });
-//   } catch (error) {
-//     return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
-//   }
-// };
+
 const getAllEnquiries = async (req, res) => {
   try {
     // Auto-reject expired pending enquiries first
@@ -5844,16 +5834,50 @@ const updateEnquiry = async (req, res) => {
 //   }
 // };
 
+// ── TOGGLE "RATE PASSED AND HOLD" — PUT /api/tour/enquiry/:id/rate-passed ──
+// This is a SEPARATE flag from `status` (pending/accepted/rejected). An
+// enquiry stays "pending" in status terms while isRatePassed can
+// independently be true or false. Used to surface enquiries where the
+// rate has been confirmed/passed internally but the booking itself is
+// still on hold pending customer confirmation. Only allowed while the
+// enquiry's status is still "pending" — once accepted or rejected, the
+// flag is locked at whatever value it last had (frontend additionally
+// disables the toggle button once status leaves "pending").
+const toggleRatePassed = async (req, res) => {
+  try {
+    const enquiry = await enquiryModel.findById(req.params.id);
+    if (!enquiry) {
+      return res.status(404).json({ success: false, message: "Enquiry not found" });
+    }
+    if (enquiry.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "Rate Passed and Hold can only be toggled while the enquiry is still pending",
+      });
+    }
 
+    enquiry.isRatePassed = !enquiry.isRatePassed;
+    const updated = await enquiry.save({ validateBeforeSave: false });
+
+    return res.status(200).json({
+      success: true,
+      message: updated.isRatePassed
+        ? "Marked as Rate Passed and Hold"
+        : "Rate Passed and Hold cleared",
+      data: updated,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
+  }
+};
 
 const acceptEnquiry = async (req, res) => {
   try {
     const { salesValue, fitStates, pickupDate, pickupTime, pickupPlace } = req.body;
 
-    // Validation
-    if (!fitStates || !Array.isArray(fitStates) || fitStates.length === 0) {
-      return res.status(400).json({ success: false, message: "At least one FIT state is required" });
-    }
+    // Validation — FIT states is OPTIONAL (no longer required to accept).
+    // It's fine for fitStates to be missing, empty, or undefined here;
+    // we simply default it to [] further down before saving.
     if (!salesValue || isNaN(Number(salesValue)) || Number(salesValue) <= 0) {
       return res.status(400).json({ success: false, message: "Valid sales value is required" });
     }
@@ -5877,7 +5901,7 @@ const acceptEnquiry = async (req, res) => {
 
     enquiry.status = "accepted";
     enquiry.salesValue = Number(salesValue);
-    enquiry.fitStates = fitStates;
+    enquiry.fitStates = Array.isArray(fitStates) ? fitStates : [];
     enquiry.pickupDate = new Date(pickupDate);
     enquiry.pickupTime = pickupTime.trim();
     enquiry.pickupPlace = pickupPlace.trim();
@@ -5984,6 +6008,7 @@ export {
   getEnquiryById,
   updateEnquiry,
   // deleteEnquiry,
+  toggleRatePassed,
   acceptEnquiry,
   rejectEnquiry,
 

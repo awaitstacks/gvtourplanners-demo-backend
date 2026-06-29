@@ -38,6 +38,11 @@ const enquirySchema = new mongoose.Schema(
       enum: ["pending", "accepted", "rejected"],
       default: "pending",
     },
+    // Independent flag — does NOT change `status`. An enquiry can be
+    // status:"pending" AND isRatePassed:true at the same time. Used to
+    // mark enquiries where the rate has been internally confirmed but
+    // the booking is still on hold pending customer confirmation.
+    isRatePassed: { type: Boolean, default: false },
     fitCode: {
       type: String,
       unique: true,

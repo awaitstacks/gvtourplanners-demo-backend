@@ -58,6 +58,7 @@ import {
   getEnquiryById,
   updateEnquiry,
   // deleteEnquiry,
+  toggleRatePassed,
   acceptEnquiry,
   rejectEnquiry,
   adminCreateEnquiry,
@@ -208,6 +209,7 @@ tourRouter.get('/enquiry/all', authTour, getAllEnquiries);
 tourRouter.get('/enquiry/:id', authTour, getEnquiryById);
 tourRouter.put('/enquiry/:id/update', authTour, updateEnquiry);
 // tourRouter.delete('/enquiry/:id/delete', authTour, deleteEnquiry);
+tourRouter.put('/enquiry/:id/rate-passed', authTour, toggleRatePassed);
 tourRouter.put('/enquiry/:id/accept', authTour, acceptEnquiry);
 tourRouter.put('/enquiry/:id/reject', authTour, rejectEnquiry);
 
