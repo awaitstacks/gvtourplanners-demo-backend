@@ -17,6 +17,6 @@ const userSchema = new mongoose.Schema({
   },
   phone: { type: String, default: "+91 xxxxx xxxxx" },
   bookedTours: [{ type: mongoose.Schema.Types.ObjectId, ref: "tourbooking" }],
-});
+}, { timestamps: true });
 const userModel = mongoose.models.user || mongoose.model("user", userSchema);
 export default userModel;

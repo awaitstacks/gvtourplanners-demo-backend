@@ -1566,17 +1566,20 @@ const getAllUsers = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    // ← ADD: _id timestamp fallback for users without createdAt
+    const enriched = users.map(u => ({
+      ...u,
+      createdAt: u.createdAt || u._id.getTimestamp(),
+    }));
+
     res.json({
       success: true,
-      total: users.length,
-      users, // ← முக்கியம்: "users" key தான் தரணும்
+      total: enriched.length,
+      users: enriched,
     });
   } catch (error) {
     console.error("Error fetching users:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch users",
-    });
+    res.status(500).json({ success: false, message: "Failed to fetch users" });
   }
 };
 
@@ -1926,7 +1929,7 @@ const adminAllotRooms = async (req, res) => {
     //   if (original === "triple") tripleSingles[gender].push(single);
     //   else if (original === "double") doubleSingles[gender].push(single);
     // });
-        singleRooms.forEach((single) => {
+    singleRooms.forEach((single) => {
       const occupant = single.room.occupants[0];
       const gender = (occupant.gender || "").toLowerCase();
       const original = occupant.sharingType;
@@ -3851,25 +3854,25 @@ const getAnalyticsSummary = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: {
-        totalTours:                    matchTourIds.length || (await tourModel.countDocuments()),
-        totalBookings:                 stats?.totalBookings                 || 0,
-        unverifiedBookings:            stats?.unverifiedBookings            || 0,
-        activeBookings:                stats?.activeBookings                || 0,
-        completedBookings:             stats?.completedBookings             || 0,
-        fullyCancelledBookings:        stats?.fullyCancelledBookings        || 0,
-        rejectedBookings:              stats?.rejectedBookings              || 0,
-        totalTravellers:               stats?.totalTravellers               || 0,
-        unverifiedTravellers:          stats?.unverifiedTravellers          || 0,
-        activeTravellers:              stats?.activeTravellers              || 0,
-        cancelledTravellers:           stats?.cancelledTravellers           || 0,
+        totalTours: matchTourIds.length || (await tourModel.countDocuments()),
+        totalBookings: stats?.totalBookings || 0,
+        unverifiedBookings: stats?.unverifiedBookings || 0,
+        activeBookings: stats?.activeBookings || 0,
+        completedBookings: stats?.completedBookings || 0,
+        fullyCancelledBookings: stats?.fullyCancelledBookings || 0,
+        rejectedBookings: stats?.rejectedBookings || 0,
+        totalTravellers: stats?.totalTravellers || 0,
+        unverifiedTravellers: stats?.unverifiedTravellers || 0,
+        activeTravellers: stats?.activeTravellers || 0,
+        cancelledTravellers: stats?.cancelledTravellers || 0,
         cancellationRequestTravellers: stats?.cancellationRequestTravellers || 0,
-        rejectedTravellers:            stats?.rejectedTravellers            || 0,
-        totalFemale:                   stats?.totalFemale                   || 0,
-        totalMale:                     stats?.totalMale                     || 0,
-        totalChild:                    stats?.totalChild                    || 0,
-        totalGVPool:                   stats?.totalGVPool                   || 0,
-        totalIRCTCPool:                stats?.totalIRCTCPool                || 0,
-        totalCancelAmount:             stats?.totalCancelAmount             || 0,
+        rejectedTravellers: stats?.rejectedTravellers || 0,
+        totalFemale: stats?.totalFemale || 0,
+        totalMale: stats?.totalMale || 0,
+        totalChild: stats?.totalChild || 0,
+        totalGVPool: stats?.totalGVPool || 0,
+        totalIRCTCPool: stats?.totalIRCTCPool || 0,
+        totalCancelAmount: stats?.totalCancelAmount || 0,
       }
     });
   } catch (err) {
@@ -4045,16 +4048,16 @@ const getAnalyticsYearWise = async (req, res) => {
         tourCount: yr.tourCount,
         availableTours,
         soldoutTours,
-        travellers:                    stats?.travellers                    || 0,
-        bookings:                      stats?.bookings                      || 0,
-        activeTravellers:              stats?.activeTravellers              || 0,
-        cancelledTravellers:           stats?.cancelledTravellers           || 0,
-        rejectedTravellers:            stats?.rejectedTravellers            || 0,
-        unverifiedTravellers:          stats?.unverifiedTravellers          || 0,
+        travellers: stats?.travellers || 0,
+        bookings: stats?.bookings || 0,
+        activeTravellers: stats?.activeTravellers || 0,
+        cancelledTravellers: stats?.cancelledTravellers || 0,
+        rejectedTravellers: stats?.rejectedTravellers || 0,
+        unverifiedTravellers: stats?.unverifiedTravellers || 0,
         cancellationRequestTravellers: stats?.cancellationRequestTravellers || 0,
-        completedBookings:             stats?.completedBookings             || 0,
-        activeBookings:                stats?.activeBookings                || 0,
-        unverifiedBookings:            stats?.unverifiedBookings            || 0,
+        completedBookings: stats?.completedBookings || 0,
+        activeBookings: stats?.activeBookings || 0,
+        unverifiedBookings: stats?.unverifiedBookings || 0,
       };
     }));
 
@@ -4274,18 +4277,18 @@ const getAnalyticsMonthWise = async (req, res) => {
         tourCount: grp.tourCount,
         availableTours,
         soldoutTours,
-        travellers:                    stats?.travellers                    || 0,
-        bookings:                      stats?.bookings                      || 0,
-        activeTravellers:              stats?.activeTravellers              || 0,
-        cancelledTravellers:           stats?.cancelledTravellers           || 0,
-        rejectedTravellers:            stats?.rejectedTravellers            || 0,
-        unverifiedTravellers:          stats?.unverifiedTravellers          || 0,
+        travellers: stats?.travellers || 0,
+        bookings: stats?.bookings || 0,
+        activeTravellers: stats?.activeTravellers || 0,
+        cancelledTravellers: stats?.cancelledTravellers || 0,
+        rejectedTravellers: stats?.rejectedTravellers || 0,
+        unverifiedTravellers: stats?.unverifiedTravellers || 0,
         cancellationRequestTravellers: stats?.cancellationRequestTravellers || 0,
-        completedBookings:             stats?.completedBookings             || 0,
-        activeBookings:                stats?.activeBookings                || 0,
-        unverifiedBookings:            stats?.unverifiedBookings            || 0,
-        gvPool:                        stats?.gvPool                        || 0,
-        irctcPool:                     stats?.irctcPool                     || 0,
+        completedBookings: stats?.completedBookings || 0,
+        activeBookings: stats?.activeBookings || 0,
+        unverifiedBookings: stats?.unverifiedBookings || 0,
+        gvPool: stats?.gvPool || 0,
+        irctcPool: stats?.irctcPool || 0,
       };
     }));
 
