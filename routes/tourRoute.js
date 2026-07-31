@@ -16,6 +16,7 @@ import {
   updateTourBalance,
   updateModifyReceipt,
   viewBooking,
+  getBookingInvoice,
   getCancellationsByBooking,
   updateBookingBalance,
   getManagedBookingsHistory,
@@ -62,6 +63,9 @@ import {
   acceptEnquiry,
   rejectEnquiry,
   adminCreateEnquiry,
+  updateBookingInvoice,
+  deleteBookingInvoice,
+  
 } from "../controllers/tourController.js";
 import authTour from "../middlewares/authTour.js";
 import { tourUpload } from "../middlewares/multer.js";
@@ -99,7 +103,10 @@ tourRouter.post("/update-tour-balance/:tnr", authTour, updateTourBalance);
 tourRouter.post("/update-tour-advance/:tnr", authTour, updateTourAdvance);
 
 tourRouter.put("/mark-modify-receipt", authTour, updateModifyReceipt); // New route
-tourRouter.get("/view-booking-cancel/:tnr", viewBooking); // New route
+tourRouter.get("/view-booking-cancel/:tnr", viewBooking); 
+tourRouter.get("/invoice/:tnr", getBookingInvoice);// New route
+tourRouter.put("/invoice/:tnr", updateBookingInvoice);
+tourRouter.delete("/invoice/:tnr", deleteBookingInvoice);
 tourRouter.get("/cancelled-bookings/:tnr", getCancellationsByBooking); // New route
 // tourRouter.post("/calculate-cancellation", viewBooking); // New route
 tourRouter.post("/bookings/:tnr/cancel", cancelBookingController);

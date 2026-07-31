@@ -11,6 +11,288 @@ import TourVehicle from "../models/tourVehicleModel.js";
 import PaymentMethod from "../models/paymentModel.js";
 import BalanceMethod from "../models/balanceReminderModel.js";
 import enquiryModel from "../models/enquiryModel.js";
+import { buildInvoiceView, currencyRound } from "./invoiceView.js";
+import invoiceModel from "../models/invoiceModel.js"; // ← the new separate model
+
+// Whenever booking data that affects invoice totals changes (admin remarks,
+// advance/balance shifts, payment status), the previously saved (edited)
+// invoice snapshot is now stale. Delete it so the next GET /invoice/:tnr
+// rebuilds fresh via buildInvoiceView — same as manual "revert" flow.
+
+const freezeEditedEntries = (incoming, freshAuto) => {
+  const freshItemMap = new Map((freshAuto.items || []).map((i) => [i.sourceRef, i]));
+  const freshPaymentMap = new Map((freshAuto.payments || []).map((p) => [p.sourceRef, p]));
+
+  const items = (incoming.items || []).map((item) => {
+    if (!item.sourceRef) return item; // already manual
+    const fresh = freshItemMap.get(item.sourceRef);
+    const changed =
+      !fresh ||
+      fresh.description !== item.description ||
+      fresh.subDescription !== item.subDescription ||
+      Number(fresh.gstRate) !== Number(item.gstRate) ||
+      Number(fresh.quantity) !== Number(item.quantity) ||
+      Number(fresh.rate) !== Number(item.rate);
+    return changed ? { ...item, sourceRef: null } : item;
+  });
+
+  const payments = (incoming.payments || []).map((p) => {
+    if (!p.sourceRef) return p; // already manual
+    const fresh = freshPaymentMap.get(p.sourceRef);
+    const changed =
+      !fresh ||
+      Number(fresh.amountReceived) !== Number(p.amountReceived) ||
+      new Date(fresh.date || 0).getTime() !== new Date(p.date || 0).getTime();
+    return changed ? { ...p, sourceRef: null } : p;
+  });
+
+  return { ...incoming, items, payments };
+};
+const syncInvoiceWithBooking = (savedInvoice, booking, tour) => {
+  const freshAuto = buildInvoiceView(booking, tour);
+  if (!freshAuto) return savedInvoice;
+
+  const deletedRefs = new Set(savedInvoice.deletedSourceRefs || []);
+
+  // Exclude anything the admin explicitly deleted, so it doesn't reappear.
+  const freshItems = freshAuto.items.filter((i) => !deletedRefs.has(i.sourceRef));
+  const freshPayments = freshAuto.payments.filter((p) => !deletedRefs.has(p.sourceRef));
+
+  const manualItems = (savedInvoice.items || []).filter((i) => !i.sourceRef);
+  const manualPayments = (savedInvoice.payments || []).filter((p) => !p.sourceRef);
+
+  const mergedItems = [...freshItems, ...manualItems];
+  const mergedPayments = [...freshPayments, ...manualPayments];
+
+  const amountSum = currencyRound(mergedItems.reduce((s, i) => s + (i.amount || 0), 0));
+  const cgstSum = currencyRound(mergedItems.reduce((s, i) => s + (i.cgst || 0), 0));
+  const sgstSum = currencyRound(mergedItems.reduce((s, i) => s + (i.sgst || 0), 0));
+  const roundOff = Number(savedInvoice.totals?.roundOff || 0);
+  const grandTotal = currencyRound(amountSum + cgstSum + sgstSum + roundOff);
+
+  const amountPaid = currencyRound(mergedPayments.reduce((s, p) => s + (p.amountReceived || 0), 0));
+  const dueAmount = Math.max(0, currencyRound(grandTotal - amountPaid));
+  const status = dueAmount <= 0 ? "Paid" : "Part Paid";
+
+  return {
+    ...savedInvoice,
+    items: mergedItems,
+    payments: mergedPayments,
+    deletedSourceRefs: savedInvoice.deletedSourceRefs || [],
+    totals: { amount: amountSum, cgst: cgstSum, sgst: sgstSum, roundOff, grandTotal },
+    amountPaid,
+    dueAmount,
+    status,
+  };
+};
+
+
+// ── Route handler — GET /api/tour/invoice/:tnr ───────────────────────────
+const getBookingInvoice = async (req, res) => {
+  try {
+    const { tnr } = req.params;
+
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid 6-character TNR is required",
+      });
+    }
+
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    const booking = await tourBookingModel
+      .findOne({ tnr: normalizedTnr })
+      .lean();
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found with this TNR",
+      });
+    }
+
+    // Fetch the LIVE tour doc (not the stale tourData snapshot on the
+    // booking), so gst / price always reflect current tour settings.
+    const tour = await tourModel.findById(booking.tourId).lean();
+
+    if (!tour) {
+      return res.status(404).json({
+        success: false,
+        message: "Tour not found for this booking",
+      });
+    }
+
+
+    const savedInvoice = await invoiceModel.findOne({ tnr: normalizedTnr }).lean();
+
+    let invoice;
+    if (!savedInvoice) {
+      invoice = buildInvoiceView(booking, tour);
+    } else {
+      invoice = syncInvoiceWithBooking(savedInvoice, booking, tour);
+      if (invoice) {
+        // Keep the saved doc's synced values up to date too, so any other
+        // code path reading straight from invoiceModel sees the same data.
+        await invoiceModel.findOneAndUpdate(
+          { tnr: normalizedTnr },
+          { $set: invoice },
+          { new: false },
+        );
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      invoice, // null if advance not yet paid
+    });
+  } catch (error) {
+    console.error("getBookingInvoice error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while building invoice",
+      error: error.message,
+    });
+  }
+};
+// PUT /api/tour/invoice/:tnr
+// Saves the admin's edited invoice into the SEPARATE invoice collection —
+// tourBookingModel is never touched by this.
+const updateBookingInvoice = async (req, res) => {
+  try {
+    const { tnr } = req.params;
+    const { invoice } = req.body;
+
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid 6-character TNR is required",
+      });
+    }
+
+    if (!invoice || typeof invoice !== "object") {
+      return res.status(400).json({
+        success: false,
+        message: "Invoice data is required",
+      });
+    }
+
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    const booking = await tourBookingModel.findOne({ tnr: normalizedTnr });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found with this TNR",
+      });
+    }
+
+    if (!booking.invoiceNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot edit invoice before advance is paid",
+      });
+    }
+
+    const tour = await tourModel.findById(booking.tourId).lean();
+    const freshAuto =
+      buildInvoiceView(booking.toObject ? booking.toObject() : booking, tour) || {
+        items: [],
+        payments: [],
+      };
+
+    // Any auto item/payment whose value the admin actually changed gets
+    // frozen (sourceRef cleared) so it stops auto-syncing from now on.
+    const frozenInvoice = freezeEditedEntries(invoice, freshAuto);
+
+    // Any auto sourceRef that existed in freshAuto but is MISSING from the
+    // admin's saved item/payment list was deliberately removed — track it
+    // so future syncs never regenerate it again.
+    const incomingItemRefs = new Set(
+      (frozenInvoice.items || []).map((i) => i.sourceRef).filter(Boolean),
+    );
+    const incomingPaymentRefs = new Set(
+      (frozenInvoice.payments || []).map((p) => p.sourceRef).filter(Boolean),
+    );
+
+    const newlyDeletedRefs = [
+      ...freshAuto.items.filter((i) => !incomingItemRefs.has(i.sourceRef)).map((i) => i.sourceRef),
+      ...freshAuto.payments.filter((p) => !incomingPaymentRefs.has(p.sourceRef)).map((p) => p.sourceRef),
+    ];
+
+    const existing = await invoiceModel.findOne({ tnr: normalizedTnr }).lean();
+    const deletedSourceRefs = Array.from(
+      new Set([...(existing?.deletedSourceRefs || []), ...newlyDeletedRefs]),
+    );
+
+    const saved = await invoiceModel.findOneAndUpdate(
+      { tnr: normalizedTnr },
+      {
+        ...frozenInvoice,
+        tnr: normalizedTnr,
+        bookingId: booking._id,
+        invoiceNumber: booking.invoiceNumber,
+        deletedSourceRefs,
+      },
+      { upsert: true, new: true, runValidators: true },
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Invoice saved successfully",
+      invoice: saved,
+    });
+  } catch (error) {
+    console.error("updateBookingInvoice error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while saving invoice",
+      error: error.message,
+    });
+  }
+};
+
+// DELETE /api/tour/invoice/:tnr
+// Removes the saved (edited) invoice document. Does NOT touch
+// tourBookingModel at all — invoiceNumber stays exactly as it is.
+// After this, GET /api/tour/invoice/:tnr goes back to auto-calculating
+// the invoice fresh from travellers/tourData, same as before any edit.
+const deleteBookingInvoice = async (req, res) => {
+  try {
+    const { tnr } = req.params;
+
+    if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid 6-character TNR is required",
+      });
+    }
+
+    const normalizedTnr = tnr.trim().toUpperCase();
+
+    const deleted = await invoiceModel.findOneAndDelete({ tnr: normalizedTnr });
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "No saved edit found for this invoice",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Saved invoice edit removed — reverted to auto-calculated",
+    });
+  } catch (error) {
+    console.error("deleteBookingInvoice error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while deleting invoice",
+      error: error.message,
+    });
+  }
+};
 
 const tourList = async (req, res) => {
   try {
@@ -406,8 +688,9 @@ const markOfflineAdvancePaid = async (req, res) => {
     }
 
     // Fetch booking by TNR (case-insensitive lookup)
+    const normalizedTnr = tnr.trim().toUpperCase();
     const booking = await tourBookingModel.findOne({
-      tnr: tnr.trim().toUpperCase(),
+      tnr: normalizedTnr,
     });
 
     if (!booking) {
@@ -545,8 +828,9 @@ const markOfflineBalancePaid = async (req, res) => {
     }
 
     // Fetch booking by TNR (case-insensitive)
+    const normalizedTnr = tnr.trim().toUpperCase();
     const booking = await tourBookingModel.findOne({
-      tnr: tnr.trim().toUpperCase(),
+      tnr: normalizedTnr,
     });
 
     if (!booking) {
@@ -869,7 +1153,8 @@ const updateTourProfile = async (req, res) => {
       boardingPoints,
       deboardingPoints,
       remarks,
-      variantPackage, // New field: array of variant packages
+      variantPackage,
+      gst, // New field: GST percentage
     } = req.body;
 
     // 5. Use existing data as a fallback for calculations
@@ -895,6 +1180,16 @@ const updateTourProfile = async (req, res) => {
         });
       }
     }
+
+    if (gst !== undefined && gst !== "") {
+      const parsedGst = Number(gst);
+      if (isNaN(parsedGst) || parsedGst < 0) {
+        return res.json({ success: false, message: "Invalid GST value" });
+      }
+      updateFields.gst = parsedGst;
+    }
+
+    // 6. Recalculate balances for main tour using the most current data
 
     // 6. Recalculate balances for main tour using the most current data
     if (parsedPrice && parsedAdvanceAmount) {
@@ -1424,333 +1719,6 @@ const viewTourAdvance = async (req, res) => {
   }
 };
 
-// const updateTourBalance = async (req, res) => {
-//   try {
-//     const { tnr } = req.params;
-
-//     // ─── INPUT VALIDATION ─ TNR ────────────────────────────────────────
-//     if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Valid 6-character TNR is required in the URL",
-//       });
-//     }
-
-//     const normalizedTnr = tnr.trim().toUpperCase();
-
-//     // ─── BODY VALIDATION ───────────────────────────────────────────────
-//     if (!req.body || !req.body.updates) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Request body is missing or does not contain updates",
-//       });
-//     }
-
-//     const { updates } = req.body;
-
-//     if (!Array.isArray(updates) || updates.length === 0) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Updates must be a non-empty array",
-//       });
-//     }
-
-//     for (const update of updates) {
-//       const { remarks, amount } = update;
-
-//       if (amount === undefined || typeof amount !== "number") {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Each update must include a valid numeric amount",
-//         });
-//       }
-
-//       if (remarks && (typeof remarks !== "string" || remarks.trim() === "")) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Remarks, if provided, must be a non-empty string",
-//         });
-//       }
-//     }
-
-//     // ─── FIND BOOKING BY TNR ───────────────────────────────────────────
-//     const booking = await tourBookingModel.findOne({ tnr: normalizedTnr });
-
-//     if (!booking) {
-//       return res.status(404).json({
-//         success: false,
-//         message: `No booking found with TNR: ${normalizedTnr}`,
-//       });
-//     }
-
-//     // ─── BUSINESS RULES / BLOCKING CONDITIONS ──────────────────────────
-//     if (booking.cancellationRequest === true) {
-//       return res.status(400).json({
-//         success: false,
-//         message:
-//           "Cannot update balance: Full booking cancellation request is pending admin approval.",
-//       });
-//     }
-
-//     const advancePaid = booking.payment?.advance?.paid === true;
-//     const balancePaid = booking.payment?.balance?.paid === true;
-
-//     if (!advancePaid && !balancePaid) {
-//       return res.status(400).json({
-//         success: false,
-//         message:
-//           "Cannot update balance: Neither advance nor balance payment has been received yet.",
-//       });
-//     }
-
-//     const hasTravellerAppliedForCancellation = booking.travellers.some(
-//       (t) =>
-//         t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === false,
-//     );
-
-//     if (hasTravellerAppliedForCancellation) {
-//       return res.status(400).json({
-//         success: false,
-//         message:
-//           "One or more travellers have applied for cancellation. Cannot update balance.",
-//       });
-//     }
-
-//     if (advancePaid && balancePaid) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Cannot update: Advance and balance are both already paid",
-//       });
-//     }
-
-//     const allTravellersCancelledByAdmin = booking.travellers.every(
-//       (t) => t.cancelled?.byAdmin === true,
-//     );
-
-//     if (allTravellersCancelledByAdmin) {
-//       return res.status(400).json({
-//         success: false,
-//         message:
-//           "Cannot update: All travellers are cancelled by admin. Booking is closed.",
-//       });
-//     }
-
-//     const currentBalance = booking.payment?.balance?.amount || 0;
-//     const totalDeduction = updates
-//       .filter((u) => u.amount < 0)
-//       .reduce((sum, u) => sum + Math.abs(u.amount), 0);
-
-//     if (currentBalance - totalDeduction < 0) {
-//       return res.status(400).json({
-//         success: false,
-//         message: `Cannot apply updates: Balance would become negative. Current: ₹${currentBalance}, Requested deduction: ₹${totalDeduction}`,
-//       });
-//     }
-
-//     // ─── APPLY UPDATES ─────────────────────────────────────────────────
-//     for (const update of updates) {
-//       const { remarks, amount } = update;
-
-//       booking.payment.balance.amount += amount;
-
-//       booking.adminRemarks.push({
-//         remark: remarks?.trim() || "No remark provided",
-//         amount,
-//         addedAt: new Date(),
-//       });
-//     }
-
-//     booking.isTripCompleted = true;
-
-//     await booking.save();
-
-//     // ─── SUCCESS RESPONSE ──────────────────────────────────────────────
-//     return res.status(200).json({
-//       success: true,
-//       message: "Balance and admin remarks updated successfully",
-//       data: {
-//         tnr: booking.tnr,
-//         bookingId: booking._id.toString(), // still included for reference
-//         updatedBalance: booking.payment.balance.amount,
-//         adminRemarks: booking.adminRemarks,
-//         isTripCompleted: booking.isTripCompleted,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Error updating tour balance:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Internal server error",
-//       error: error.message,
-//     });
-//   }
-// };
-
-// const updateTourAdvance = async (req, res) => {
-//   try {
-//     const { tnr } = req.params;
-
-//     // Validate TNR
-//     if (!tnr || typeof tnr !== "string" || tnr.trim().length !== 6) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Valid 6-character TNR is required",
-//       });
-//     }
-
-//     const normalizedTnr = tnr.trim().toUpperCase();
-
-//     // Validate body
-//     if (
-//       !req.body ||
-//       !req.body.updates ||
-//       !Array.isArray(req.body.updates) ||
-//       req.body.updates.length === 0
-//     ) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Updates must be a non-empty array",
-//       });
-//     }
-
-//     const { updates } = req.body;
-
-//     // Validate each update
-//     for (const update of updates) {
-//       const { remarks, amount } = update;
-
-//       if (amount === undefined || typeof amount !== "number" || isNaN(amount)) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Each update must include a valid 'amount' (number)",
-//         });
-//       }
-
-//       if (remarks && (typeof remarks !== "string" || remarks.trim() === "")) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Remarks, if provided, must be a non-empty string",
-//         });
-//       }
-
-//       if (amount <= 0) {
-//         return res.status(400).json({
-//           success: false,
-//           message:
-//             "Amount to shift from advance to balance must be greater than 0",
-//         });
-//       }
-//     }
-
-//     // Fetch booking by TNR
-//     const booking = await tourBookingModel.findOne({ tnr: normalizedTnr });
-//     if (!booking) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Booking not found with this TNR",
-//       });
-//     }
-
-//     // BLOCK: Advance already paid
-//     if (booking.payment.advance.paid === true) {
-//       return res.status(400).json({
-//         success: false,
-//         message:
-//           "Advance already paid. Cannot adjust or shift amount from advance.",
-//       });
-//     }
-
-//     // BLOCK: Traveller cancellation pending
-//     const hasTravellerAppliedForCancellation = booking.travellers.some(
-//       (t) =>
-//         t.cancelled?.byTraveller === true && t.cancelled?.byAdmin === false,
-//     );
-
-//     if (hasTravellerAppliedForCancellation) {
-//       return res.status(400).json({
-//         success: false,
-//         message:
-//           "Cannot shift advance to balance: One or more travellers have applied for cancellation",
-//       });
-//     }
-
-//     // BLOCK: Both advance & balance already fully paid
-//     const advanceFullyPaid =
-//       booking.payment.advance.paid === true &&
-//       booking.payment.advance.paymentVerified === true;
-//     const balanceFullyPaid = booking.payment.balance.paid === true;
-
-//     if (advanceFullyPaid && balanceFullyPaid) {
-//       return res.status(400).json({
-//         success: false,
-//         message:
-//           "Cannot shift amount: Both advance and balance are already fully paid",
-//       });
-//     }
-
-//     // BLOCK: Trip already completed
-//     if (booking.isTripCompleted === true) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Cannot shift amount: Trip is already marked as completed",
-//       });
-//     }
-
-//     // Apply updates: Shift from Advance to Balance
-//     for (const update of updates) {
-//       const { remarks, amount } = update;
-
-//       // Deduct from advance
-//       booking.payment.advance.amount -= amount;
-
-//       // Add to balance
-//       booking.payment.balance.amount += amount;
-//       booking.payment.balance.paid = false;
-//       booking.payment.balance.paymentVerified = false;
-//       if (booking.payment.balance.paidAt) {
-//         booking.payment.balance.paidAt = null;
-//       }
-
-//       // Record remark
-//       booking.advanceAdminRemarks.push({
-//         remark: remarks?.trim() || "Amount shifted from advance to balance",
-//         amount,
-//         addedAt: new Date(),
-//       });
-//     }
-
-//     // Mark modified fields
-//     booking.markModified("advanceAdminRemarks");
-//     booking.markModified("payment.advance.amount");
-//     booking.markModified("payment.balance");
-
-//     // Mark trip as completed
-//     booking.isTripCompleted = true;
-
-//     // Save
-//     await booking.save();
-
-//     return res.status(200).json({
-//       success: true,
-//       message:
-//         "Advance amount successfully shifted to balance and trip marked as completed",
-//       data: {
-//         tnr: normalizedTnr,
-//         updatedAdvanceAmount: booking.payment.advance.amount,
-//         updatedBalanceAmount: booking.payment.balance.amount,
-//         advanceAdminRemarks: booking.advanceAdminRemarks,
-//         isTripCompleted: booking.isTripCompleted,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Error in updateTourAdvance:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Internal server error",
-//       error: error.message,
-//     });
-//   }
-// };
 
 const updateTourBalance = async (req, res) => {
   try {
@@ -4498,6 +4466,7 @@ const addTour = async (req, res) => {
       boardingPoints,
       deboardingPoints,
       variantPackage,
+      gst,
     } = req.body;
 
     // Image handling
@@ -4578,6 +4547,16 @@ const addTour = async (req, res) => {
         message: "Invalid number in price or advance amount",
       });
     }
+
+    const parsedGst = gst !== undefined && gst !== "" ? Number(gst) : 0;
+    if (isNaN(parsedGst) || parsedGst < 0) {
+      return res.json({
+        success: false,
+        message: "Invalid GST value",
+      });
+    }
+
+    // Calculate balances for main tour
 
     // Calculate balances for main tour
     const balanceDouble = doubleSharing - advanceAdult;
@@ -4766,6 +4745,7 @@ const addTour = async (req, res) => {
         childWithBerth,
         childWithoutBerth,
       },
+      gst: parsedGst,
       advanceAmount: {
         adult: advanceAdult,
         child: advanceChild,
@@ -5175,128 +5155,6 @@ const getTourPaymentMethods = async (req, res) => {
   }
 };
 
-// ──────────────────────────────────────────────────────────────────────────────
-// POST /api/tour/:tourId/payment-methods
-// Create Payment Method for Specific Tour
-// ──────────────────────────────────────────────────────────────────────────────
-// const createTourPaymentMethod = async (req, res) => {
-//   try {
-//     const { tourId } = req.params;
-
-//     console.log("Received tourId:", tourId); // ← Debug க்காக
-
-//     if (!tourId) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Tour ID is required in URL",
-//       });
-//     }
-
-//     // Check if tour exists
-//     const tour = await tourModel.findById(tourId);
-//     if (!tour) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Tour not found",
-//       });
-//     }
-
-//     const type = req.body?.type?.trim().toLowerCase();
-
-//     if (!type || !["bank", "upi"].includes(type)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Type must be either 'bank' or 'upi'",
-//       });
-//     }
-
-//     let paymentData = {
-//       tourId,
-//       type,
-//       isActive: true
-//     };
-
-//     if (type === "bank") {
-//       const {
-//         bankName, branchName, accountNumber, ifsc, swift = "",
-//         beneficiary, accountType
-//       } = req.body;
-
-//       if (!bankName?.trim() || !branchName?.trim() || !accountNumber?.trim() ||
-//         !ifsc?.trim() || !beneficiary?.trim() || !accountType?.trim()) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "All bank fields are required",
-//         });
-//       }
-
-//       paymentData = {
-//         ...paymentData,
-//         bankName: bankName.trim(),
-//         branchName: branchName.trim(),
-//         accountNumber: accountNumber.trim(),
-//         ifsc: ifsc.trim().toUpperCase(),
-//         swift: swift.trim() || undefined,
-//         beneficiary: beneficiary.trim(),
-//         accountType: accountType.trim(),
-//       };
-//     }
-//     else if (type === "upi") {
-//       const { upiId, phone } = req.body;
-
-//       if (!upiId?.trim() || !phone?.trim()) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "UPI ID and Phone number are required for UPI",
-//         });
-//       }
-
-//       if (!/^[0-9]{10}$/.test(phone.trim())) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Phone number must be exactly 10 digits",
-//         });
-//       }
-
-//       paymentData = {
-//         ...paymentData,
-//         upiId: upiId.trim(),
-//         phone: phone.trim(),
-//       };
-
-//       if (req.file) {
-//         try {
-//           const result = await cloudinary.v2.uploader.upload(req.file.path, {
-//             folder: `tour-payments/${tourId}/qr`,
-//             resource_type: "image",
-//           });
-//           paymentData.qrImage = result.secure_url;
-//         } catch (uploadErr) {
-//           console.error("Cloudinary upload failed:", uploadErr);
-//           return res.status(500).json({
-//             success: false,
-//             message: "Failed to upload QR code image",
-//           });
-//         }
-//       }
-//     }
-
-//     const newMethod = await BalanceMethod.create(paymentData);
-
-//     return res.status(201).json({
-//       success: true,
-//       message: `${type.toUpperCase()} payment method created successfully for this tour`,
-//       paymentMethod: newMethod,
-//     });
-//   } catch (error) {
-//     console.error("createTourPaymentMethod error:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Failed to create tour payment method",
-//       error: error.message,
-//     });
-//   }
-// };
 
 const createTourPaymentMethod = async (req, res) => {
   try {
@@ -5965,6 +5823,9 @@ export {
   deleteAdvanceRemark,
   updateModifyReceipt,
   viewBooking,
+  getBookingInvoice,
+  updateBookingInvoice,
+  deleteBookingInvoice,      // ← ADD THIS LINE
   getCancellationsByBooking,
   updateBookingBalance,
   getManagedBookingsHistory,
