@@ -48,21 +48,40 @@ const freezeEditedEntries = (incoming, freshAuto) => {
 
   return { ...incoming, items, payments };
 };
-const syncInvoiceWithBooking = (savedInvoice, booking, tour) => {
-  const freshAuto = buildInvoiceView(booking, tour);
+// Merges a fresh (auto) list into a saved list while PRESERVING the saved
+// list's row order. Existing rows (manual or still-synced) keep their
+// position; only brand-new auto entries get appended at the end.
+const mergeInOrder = (savedList, freshList, deletedRefs) => {
+  const freshMap = new Map((freshList || []).map((i) => [i.sourceRef, i]));
+  const savedRefsPresent = new Set(
+    (savedList || []).map((i) => i.sourceRef).filter(Boolean),
+  );
+
+  const merged = (savedList || [])
+    .map((i) => {
+      if (!i.sourceRef) return i; // manual (edited) — as-is, same position
+      if (deletedRefs.has(i.sourceRef)) return null;
+      const fresh = freshMap.get(i.sourceRef);
+      return fresh || null; // still auto-synced — refresh value, SAME position
+    })
+    .filter(Boolean);
+
+  const newEntries = (freshList || []).filter(
+    (i) => !savedRefsPresent.has(i.sourceRef) && !deletedRefs.has(i.sourceRef),
+  );
+
+  return [...merged, ...newEntries]; // brand-new auto rows → append at end only
+};
+const syncInvoiceWithBooking = (savedInvoice, booking, tour, cancellations = []) => {
+  const freshAuto = buildInvoiceView(booking, tour, cancellations);
   if (!freshAuto) return savedInvoice;
 
   const deletedRefs = new Set(savedInvoice.deletedSourceRefs || []);
 
-  // Exclude anything the admin explicitly deleted, so it doesn't reappear.
-  const freshItems = freshAuto.items.filter((i) => !deletedRefs.has(i.sourceRef));
-  const freshPayments = freshAuto.payments.filter((p) => !deletedRefs.has(p.sourceRef));
+  const mergedItems = mergeInOrder(savedInvoice.items, freshAuto.items, deletedRefs);
+  const mergedPayments = mergeInOrder(savedInvoice.payments, freshAuto.payments, deletedRefs);
 
-  const manualItems = (savedInvoice.items || []).filter((i) => !i.sourceRef);
-  const manualPayments = (savedInvoice.payments || []).filter((p) => !p.sourceRef);
-
-  const mergedItems = [...freshItems, ...manualItems];
-  const mergedPayments = [...freshPayments, ...manualPayments];
+  // ...rest stays exactly the same
 
   const amountSum = currencyRound(mergedItems.reduce((s, i) => s + (i.amount || 0), 0));
   const cgstSum = currencyRound(mergedItems.reduce((s, i) => s + (i.cgst || 0), 0));
@@ -85,7 +104,6 @@ const syncInvoiceWithBooking = (savedInvoice, booking, tour) => {
     status,
   };
 };
-
 
 // ── Route handler — GET /api/tour/invoice/:tnr ───────────────────────────
 const getBookingInvoice = async (req, res) => {
@@ -123,14 +141,23 @@ const getBookingInvoice = async (req, res) => {
       });
     }
 
+    // Fetch all cancellation records tied to this booking — these hold
+    // the travellerIds needed to work out GV/IRCTC cancellation pool
+    // quantity on the invoice (see buildCancellationPoolItems).
+    // Fetch all cancellation records tied to this booking — matched by TNR,
+    // same pattern as getCancellationsByBooking, since bookingId may not be
+    // reliably populated on every cancellation record.
+    const cancellations = await cancellationModel
+      .find({ tnr: normalizedTnr })
+      .lean();
 
     const savedInvoice = await invoiceModel.findOne({ tnr: normalizedTnr }).lean();
 
     let invoice;
     if (!savedInvoice) {
-      invoice = buildInvoiceView(booking, tour);
+      invoice = buildInvoiceView(booking, tour, cancellations);
     } else {
-      invoice = syncInvoiceWithBooking(savedInvoice, booking, tour);
+      invoice = syncInvoiceWithBooking(savedInvoice, booking, tour, cancellations);
       if (invoice) {
         // Keep the saved doc's synced values up to date too, so any other
         // code path reading straight from invoiceModel sees the same data.
@@ -196,11 +223,19 @@ const updateBookingInvoice = async (req, res) => {
     }
 
     const tour = await tourModel.findById(booking.tourId).lean();
+
+    // ← ADDED: fetch cancellations, same as getBookingInvoice does
+    const cancellations = await cancellationModel
+      .find({ tnr: normalizedTnr })
+      .lean();
+
     const freshAuto =
-      buildInvoiceView(booking.toObject ? booking.toObject() : booking, tour) || {
+      buildInvoiceView(booking.toObject ? booking.toObject() : booking, tour, cancellations) || {
         items: [],
         payments: [],
       };
+
+    // ...rest stays exactly the same
 
     // Any auto item/payment whose value the admin actually changed gets
     // frozen (sourceRef cleared) so it stops auto-syncing from now on.
